@@ -58,17 +58,17 @@ class HelperTests(unittest.TestCase):
 
     def test_pdf_span_and_unit_note(self):
         feed = {'pdf': {'firstMonth': '2003-01', 'lastMonth': '2015-04'}}
-        self.assertEqual(prod.pdf_span(feed), ('2003-01', '2015-04'))
-        self.assertIsNone(prod.pdf_span({'pdf': None}))
-        self.assertIsNone(prod.pdf_span(None))
+        self.assertEqual(production.pdf_span(feed), ('2003-01', '2015-04'))
+        self.assertIsNone(production.pdf_span({'pdf': None}))
+        self.assertIsNone(production.pdf_span(None))
         entry = {'first': '2015-05', 'unitPool': True}
-        note = prod.unit_note(feed, {'extras': {'spud': '1981-06-02'}}, entry)
+        note = production.unit_note(feed, {'extras': {'spud': '1981-06-02'}}, entry)
         self.assertIn('Before May 2015 this well', note)
         self.assertIn('its own figures start in May 2015', note)
-        self.assertEqual(prod.unit_note(feed, {'extras': {}}, entry), note)                        # spud unknown: say it
-        self.assertEqual(prod.unit_note(feed, {'extras': {'spud': '2019-03-01'}}, entry), '')      # drilled after the PDF years
-        self.assertEqual(prod.unit_note(feed, {'extras': {}}, {'first': '2015-05'}), '')           # not flagged
-        self.assertEqual(prod.unit_note({}, {'extras': {}}, entry), '')                            # no PDF months in the feed
+        self.assertEqual(production.unit_note(feed, {'extras': {}}, entry), note)                        # spud unknown: say it
+        self.assertEqual(production.unit_note(feed, {'extras': {'spud': '2019-03-01'}}, entry), '')      # drilled after the PDF years
+        self.assertEqual(production.unit_note(feed, {'extras': {}}, {'first': '2015-05'}), '')           # not flagged
+        self.assertEqual(production.unit_note({}, {'extras': {}}, entry), '')                            # no PDF months in the feed
 
     def test_table_csv_payload_and_loader(self):
         e = entry('2024-01', '2025-03', [None] + [10] * 14)
