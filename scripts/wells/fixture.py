@@ -4,7 +4,8 @@
 
 Writes OGD_Wells.zip (and an optional permits archive) plus download-provenance.json in the same
 shape fetch_dmr.py produces, using the field names confirmed in the real layer (fileno, api,
-well_name, operator, status) and plausible extras. Names, operators and numbers are invented.
+well_name, operator, status) and plausible extras, and a four-unit well-index-data.json.gz in the
+shape the pipeline writes. Names, operators and numbers are invented.
 """
 from __future__ import annotations
 
@@ -97,6 +98,93 @@ def permit_rows(base_rows):
     ]
 
 
+def ring_around(lat, lon, miles_ns, miles_ew):
+    """A rectangle (unclosed, like the pipeline writes) centred on a point; sizes in miles."""
+    dlat, dlon = miles_ns / 2 / 69.0, miles_ew / 2 / (69.0 * 0.672)
+    return [[round(lon - dlon, 5), round(lat - dlat, 5)], [round(lon + dlon, 5), round(lat - dlat, 5)],
+            [round(lon + dlon, 5), round(lat + dlat, 5)], [round(lon - dlon, 5), round(lat + dlat, 5)]]
+
+
+def make_data(rows):
+    """A small well-index data file (what the pipeline's prepare_well_index_data.py writes).
+
+    Unit a holds the first three fixture wells (two on one pad) with a full order history and a stated
+    allowance; unit b overlaps it through one shared lateral; unit c has neither wells nor orders;
+    unit d was terminated and lists a member the wells layer does not have (the deleted record).
+    """
+    a, b, c = rows[0], rows[1], rows[2]
+    hostile = 'EVIL & CO "QUOTES" LLC'
+    def event(order, case, date, kind, verb, wells, applicant, qualifier='stated'):
+        return {'order': order, 'case': case, 'date': date, 'event': kind, 'verb': verb, 'wells': wells,
+                'qualifier': qualifier if wells is not None else None, 'applicant': applicant}
+    def bbox(ring):
+        return [min(p[0] for p in ring), min(p[1] for p in ring), max(p[0] for p in ring), max(p[1] for p in ring)]
+    ring_a = ring_around(a['lat'], a['long'], 2.0, 1.0)
+    ring_b = ring_around(b['lat'], b['long'], 1.0, 1.0)
+    ring_c = ring_around(47.2, -102.9, 1.0, 1.0)
+    ring_d = ring_around(rows[9]['lat'], rows[9]['long'], 2.0, 1.0)
+    units = [
+        {'id': 'dsu-fixture-a', 'label': 'Bakken · 1,280 acres · SPC', 'formation': 'Bakken', 'acres': 1280, 'type': 'SPC', 'mapSymbol': '1280SPC',
+         'dmrCase': None, 'dmrOrder': None, 'rings': [ring_a], 'bbox': bbox(ring_a),
+         'wells': [{'file': str(a['fileno']), 'api10': a['api'][:10], 'insideFt': 10400, 'fraction': 1.0},
+                   {'file': str(c['fileno']), 'api10': c['api'][:10], 'insideFt': 9000, 'fraction': 0.9},
+                   {'file': str(b['fileno']), 'api10': b['api'][:10], 'insideFt': 700, 'fraction': 0.07}],
+         'pools': ['Fixture-Bakken'], 'zones': ['Zone I'], 'lands': ['T152N R104W sections 3, 10'],
+         'events': [event('18000', '15000', '2010-03-02', 'spacing', 'established', 4, hostile),
+                    event('18001', '15001', '2010-03-02', 'pooling', 'pooled', None, hostile),
+                    event('30000', '27000', '2019-05-01', 'spacing', 'redefined', 8, 'CONTINENTAL RESOURCES, INC.')],
+         'allowance': {'wells': 8, 'order': '30000', 'case': '27000', 'date': '2019-05-01', 'qualifier': 'stated', 'mixed': False, 'terminated': False, 'method': 'unit_clause'},
+         'headroom': {'allowed': 8, 'wellsInside': 3, 'assignedWells': 3, 'pending': 0, 'balance': 5, 'holder': 'Continental Resources', 'holderSource': 'wells',
+                      'firstOrderDate': '2010-03-02', 'review': None},
+         'overlaps': ['dsu-fixture-b']},
+        {'id': 'dsu-fixture-b', 'label': 'Bakken · 640 acres · SPC', 'formation': 'Bakken', 'acres': 640, 'type': 'SPC', 'mapSymbol': '640SPC',
+         'dmrCase': None, 'dmrOrder': None, 'rings': [ring_b], 'bbox': bbox(ring_b),
+         'wells': [{'file': str(b['fileno']), 'api10': b['api'][:10], 'insideFt': 8000, 'fraction': 0.8}],
+         'pools': ['Fixture-Bakken'], 'zones': [], 'lands': ['T152N R104W section 10'],
+         'events': [event('18000', '15000', '2010-03-02', 'zone', None, None, hostile)],
+         'allowance': {'wells': None, 'order': '18000', 'case': '15000', 'date': '2010-03-02', 'qualifier': None, 'mixed': False, 'terminated': False, 'method': None},
+         'overlaps': ['dsu-fixture-a']},
+        {'id': 'dsu-fixture-c', 'label': 'Three Forks · 640 acres · SPC', 'formation': 'Three Forks', 'acres': 640, 'type': 'SPC', 'mapSymbol': '640SPC',
+         'dmrCase': '9999', 'dmrOrder': '12345', 'rings': [ring_c], 'bbox': bbox(ring_c), 'wells': [], 'pools': [], 'zones': [], 'lands': []},
+        {'id': 'dsu-fixture-d', 'label': 'Bakken · 1,280 acres · SPC', 'formation': 'Bakken', 'acres': 1280, 'type': 'SPC', 'mapSymbol': '1280SPC',
+         'dmrCase': None, 'dmrOrder': None, 'rings': [ring_d], 'bbox': bbox(ring_d),
+         'wells': [{'file': str(rows[9]['fileno']), 'api10': rows[9]['api'][:10], 'insideFt': 9500, 'fraction': 0.95},
+                   {'file': str(rows[7]['fileno']), 'api10': rows[7]['api'][:10], 'insideFt': 9500, 'fraction': 0.95}],   # rows[7] is the deleted record
+         'pools': ['Fixture-Bakken'], 'zones': [], 'lands': ['T150N R100W sections 20, 29'],
+         'events': [event('20000', '17000', '2012-01-10', 'spacing', 'established', 2, 'CONTINENTAL RESOURCES, INC.'),
+                    event('31000', '28000', '2021-11-15', 'termination', None, None, 'CONTINENTAL RESOURCES, INC.')],
+         # as the pipeline writes it: the allowance order is the one that stated the allowance; "terminated" flags a later order
+         'allowance': {'wells': None, 'order': '20000', 'case': '17000', 'date': '2012-01-10', 'qualifier': None, 'mixed': False, 'terminated': True, 'method': 'unit_clause'}},
+    ]
+    by_unit = {u['id']: u for u in units}
+    orders = {}
+    for unit in units:
+        for e in unit.get('events', []):
+            order = orders.setdefault(e['order'], {'order': e['order'], 'date': e['date'], 'cases': [], 'applicant': e['applicant'], 'pools': [], 'units': []})
+            if e['case'] not in order['cases']:
+                order['cases'].append(e['case'])
+            for pool in unit['pools']:
+                if pool not in order['pools']:
+                    order['pools'].append(pool)
+            order['units'].append({'unit': unit['id'], 'label': unit['label'], 'acres': unit['acres'], 'event': e['event'], 'verb': e['verb'],
+                                   'wells': e['wells'], 'qualifier': e['qualifier'], 'land': unit['lands'][0] if unit['lands'] else None})
+    events = sum(len(u.get('events', [])) for u in units)
+    return {'version': 1, 'generated': '2026-11-07T04:44:11Z',
+            'sources': {'dsus': {'retrievedAt': '2026-10-17T20:02:46Z'}, 'membership': {'minInsideFt': 660},
+                        'orders': {'note': 'Facts extracted from signed NDIC orders by the order pipeline; machine-extracted, not human-reviewed.'}, 'headroom': {}},
+            'counts': {'units': len(units), 'unitsWithWells': sum(1 for u in units if u['wells']), 'unitsWithOrders': sum(1 for u in units if u.get('events')),
+                       'unitsWithAllowance': sum(1 for u in units if u.get('allowance')), 'orders': len(orders), 'events': events},
+            'units': units, 'orders': sorted(orders.values(), key=lambda o: o['order'])}
+
+
+def write_data(out: Path, rows) -> Path:
+    import gzip
+    path = Path(out) / 'well-index-data.json.gz'
+    with gzip.open(path, 'wt', encoding='utf-8') as handle:
+        json.dump(make_data(rows), handle, ensure_ascii=False)
+    return path
+
+
 def zip_layer(folder: Path, name: str, fields, rows, prj=NAD83_PRJ) -> Path:
     with tempfile.TemporaryDirectory() as tmp:
         write_layer(Path(tmp), name, fields, rows, prj)
@@ -119,6 +207,7 @@ def write_fixture(out: Path, wells: int = 300, permits: bool = True, seed: int =
          'sha256': hashlib.sha256(path.read_bytes()).hexdigest(), 'lastModified': None, 'retrievedAt': '2026-10-17T12:00:00Z'}
         for kind, path in archives]}
     (out / 'download-provenance.json').write_text(json.dumps(provenance, indent=2) + '\n', encoding='utf-8')
+    write_data(out, rows)
     return provenance
 
 
@@ -132,6 +221,7 @@ def main(argv=None) -> int:
     provenance = write_fixture(args.out, args.wells, not args.no_permits, args.seed)
     for archive in provenance['archives']:
         print(f'{archive["file"]}: {archive["bytes"]:,} bytes')
+    print(f'well-index-data.json.gz: {(Path(args.out) / "well-index-data.json.gz").stat().st_size:,} bytes (pass it to the builder with --data)')
     return 0
 
 

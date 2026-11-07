@@ -64,7 +64,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Tests (shapefile reader, builder, fixtures, search)
+      - name: Tests (shapefile reader, builder, fixtures, units and orders, search)
         run: |
           python -m unittest discover -s scripts/tests -p 'test_*.py'
           node tests/test_well_search.mjs
@@ -81,13 +81,30 @@ jobs:
             python scripts/wells/build_well_pages.py --inspect "$archive" || echo "::warning::Could not inspect $archive"
           done
 
+      # Spacing units, membership and order history come from the pipeline repository as a release
+      # asset on this repository (release tag "well-index-data", see README). Without it the build
+      # still succeeds: the well pages simply have no "Spacing units" panel and no unit or order pages.
+      - name: Fetch the spacing-unit and order data
+        id: data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p work/data
+          if gh release download well-index-data --repo "$GITHUB_REPOSITORY" --pattern 'well-index-data.json.gz' --dir work/data; then
+            ls -l work/data
+            echo "args=--data work/data/well-index-data.json.gz" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No well-index-data release asset; building without spacing units and orders"
+            echo "args=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build the pages
         run: |
           python scripts/wells/build_well_pages.py \
             --source work/dmr \
             --out work/wells-site \
             --base-url "${{ steps.base.outputs.url }}" \
-            --summary work/build-summary.md
+            --summary work/build-summary.md ${{ steps.data.outputs.args }}
           cat work/build-summary.md >> "$GITHUB_STEP_SUMMARY"
           cat work/build-summary.md
 

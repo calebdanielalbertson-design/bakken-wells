@@ -87,3 +87,27 @@ ul.plain small{color:var(--muted)}
 .kpi span{color:var(--muted);font-size:13px}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 @media print{.top,.actions,footer.site,.search{display:none}body{background:#fff;color:#000}.panel{border-color:#ccc}}
+.unitmap{display:block;width:100%;max-width:420px;height:auto;margin:0 auto 8px;background:#0b1220;border:1px solid var(--line);border-radius:10px}
+.unitmap .outline path{fill:rgba(100,198,243,.12);stroke:var(--blue);stroke-width:1.5;stroke-linejoin:round}
+.unitmap .heads circle{fill:var(--lime);stroke:#0b1220;stroke-width:1.5}
+.unitmap .heads a:hover circle,.unitmap .heads a:focus circle{fill:#fff}
+.unitmap .bar line{stroke:var(--muted);stroke-width:2}
+.unitmap .bar text{fill:var(--muted);font:11px var(--sans)}
+table.units{width:100%;border-collapse:collapse;font-size:14px}
+table.units th,table.units td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+table.units th{color:var(--muted);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+table.units td.num,table.units th.num{text-align:right;white-space:nowrap;font-family:var(--mono)}
+table.units td.num small{display:block;color:var(--muted);font-family:var(--sans);font-size:12px}
+table.units a{text-decoration:none;font-weight:600}
+.timeline{list-style:none;padding:0;margin:0;display:grid;gap:8px}
+.timeline li{display:grid;grid-template-columns:110px 1fr;gap:2px 12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);font-size:14px}
+.timeline time{color:var(--muted);font-family:var(--mono);font-size:13px;grid-row:span 3}
+.timeline a{font-weight:600;text-decoration:none}
+.timeline .case,.timeline .who,.timeline .land{color:var(--muted);font-size:13px}
+.timeline .what{color:var(--ink)}
+.timeline.orders li{grid-template-columns:1fr}
+.timeline.orders .land{order:1}
+.timeline.orders .what{order:2}
+@media(max-width:520px){.timeline li{grid-template-columns:1fr}.timeline time{grid-row:auto}}
+ul.plain.long{columns:1}
+@media(min-width:720px){ul.plain.long{columns:2}}
