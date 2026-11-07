@@ -139,14 +139,16 @@ Each well page carries a "Production" panel: monthly oil, gas and water as an in
 series shown at a time), the last twelve months as a table, totals over the covered months, the
 first and last reported month, and a CSV of every month built in the browser from data embedded
 in the page. The source is NDIC's free Monthly Production Reports
-(<https://www.dmr.nd.gov/oilgas/mprindex.asp>): one Excel workbook per month since May 2015,
-listing every well that reported in that month. The pipeline downloads them with full provenance
-(`explorer/fetch_monthly_production.py`) and packs them into `well-production.json.gz`
-(`explorer/prepare_free_production.py`), published as a second asset of the same
-`well-index-data` release:
+(<https://www.dmr.nd.gov/oilgas/mprindex.asp>): one report per month since January 2003, listing
+every well that reported in that month, as a PDF print until April 2015 and as an Excel workbook
+from May 2015. The pipeline downloads them with full provenance
+(`explorer/fetch_monthly_production.py`), reads the PDF years from the print layout and checks
+every pool group against the report's own totals (`explorer/parse_monthly_pdf.py`), and packs
+everything into `well-production.json.gz` (`explorer/prepare_free_production.py`), published as a
+second asset of the same `well-index-data` release:
 
 ```
-python explorer/fetch_monthly_production.py --cache local-data/monthly-production
+python explorer/fetch_monthly_production.py --cache local-data/monthly-production --pdf
 python explorer/prepare_free_production.py --cache local-data/monthly-production --out work/well-production.json.gz
 gh release upload well-index-data work/well-production.json.gz --clobber --repo calebdanielalbertson-design/bakken-wells
 gh workflow run well-pages.yml --repo calebdanielalbertson-design/bakken-wells
@@ -158,10 +160,14 @@ totals count known months only and say when nothing is known; two pools reported
 summed. The values are as first reported: operators amend past months later and the Division does
 not update the published workbooks, so a month can differ from the current record, and every
 panel says so. Wells matched to the feed by NDIC file number, or by API when the file number is
-not in the layer. A well absent from the feed gets a short note, not a chart. Months before
-May 2015 are not covered yet (the Division publishes them as PDF only). `build.json` records the
-feed's file, generation time, month range and match counts under `production`, and the daily
-change check treats a new feed as a reason to rebuild.
+not in the layer. A well absent from the feed gets a short note, not a chart. The PDF years
+(January 2003 to April 2015) print no flared gas, so that series is unknown there, and they list
+a well in a unitized pool only inside its unit's total: the feed flags such wells (`unitPool`) and
+the panel of a well drilled before May 2015 says that its own figures start later for that reason.
+The flags SI and TA (shut in, temporarily abandoned) printed in place of the oil figure read as 0,
+as the Division's own workbooks have them; a dash (withheld) and NR (not reported) are unknown.
+`build.json` records the feed's file, generation time, month range, PDF month range and match
+counts under `production`, and the daily change check treats a new feed as a reason to rebuild.
 
 ## Running locally
 
@@ -210,8 +216,9 @@ wells". The 3D page has no URL state yet, so its link is generic.
 
 ## Known limits and what comes next
 
-- Production covers May 2015 onward, as first reported, from the free monthly reports; the PDF
-  months from January 2003 to April 2015 and survey summaries are not on the pages yet.
+- Production covers January 2003 onward, as first reported, from the free monthly reports; wells
+  in unitized pools have no figures of their own before May 2015, and nothing before 2003 is
+  published for free. Survey summaries are not on the pages yet.
 - Unit membership covers surveyed Bakken-system horizontals only, so vertical wells and wells
   without a survey do not appear inside any unit. Order history covers the orders in the research
   snapshot whose land description could be matched to a published footprint, not every order the

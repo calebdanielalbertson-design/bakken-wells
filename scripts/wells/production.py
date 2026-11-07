@@ -2,9 +2,11 @@
 
 The data is the pipeline's well-production feed (see README): per well, keyed by NDIC file
 number, the monthly oil, water, gas, gas sold, flared gas and producing days as first reported
-in each month's Monthly Production Report (Excel workbooks the Division publishes from May
-2015). A null month is unknown, never zero: confidential wells report NULL, and a well absent
-from a month's report has no row. This module attaches the feed to the wells read from the
+in each month's Monthly Production Report (PDF reports from January 2003, Excel workbooks from
+May 2015). A null month is unknown, never zero: confidential wells report NULL, and a well absent
+from a month's report has no row. The PDF years print no flared gas, and a well in a unitized
+pool appears in them only inside its unit's total; the feed flags such wells (unitPool) and the
+panel says so. This module attaches the feed to the wells read from the
 DMR layer and renders the "Production" panel of a well page: an inline SVG chart (oil, gas and
 water, one shown at a time), a twelve-month table, totals over the covered months and a CSV
 built in the browser from data embedded in the page.
@@ -38,7 +40,7 @@ def load_production(path):
 
 def attach(wells, data):
     """Give each well its feed entry (by file number, else by API). Returns stats."""
-    stats = {'feedWells': len(data['wells']), 'wellsWithProduction': 0, 'matchedByApi': 0, 'feedWellsNotInLayer': 0}
+    stats = {'feedWells': len(data['wells']), 'wellsWithProduction': 0, 'matchedByApi': 0, 'feedWellsNotInLayer': 0, 'unitPoolWells': 0}
     by_file = {w['file']: w for w in wells}
     by_api = {}
     for w in wells:
@@ -56,7 +58,26 @@ def attach(wells, data):
             continue
         well['production'] = entry
         stats['wellsWithProduction'] += 1
+        stats['unitPoolWells'] += bool(entry.get('unitPool'))
     return stats
+
+
+def pdf_span(feed) -> tuple[str, str] | None:
+    """(first, last) month read from the PDF reports, when the feed has any."""
+    pdf = (feed or {}).get('pdf') or {}
+    return (pdf['firstMonth'], pdf['lastMonth']) if pdf.get('firstMonth') and pdf.get('lastMonth') else None
+
+
+def unit_note(feed, well, entry) -> str:
+    """A sentence for a well whose pool was reported only as a unit total in the PDF years, if that applies to it."""
+    span = pdf_span(feed)
+    if not span or not entry.get('unitPool'):
+        return ''
+    spud = (well.get('extras') or {}).get('spud') or ''
+    if spud and spud[:7] > span[1]:
+        return ''                      # drilled after the PDF years: nothing of it could have been in a unit total
+    return (f' Before {month_label(next_month(span[1]))} this well\'s pool was reported only as a unit total, so the reports hold no '
+            f'figures for the well itself in those years; its own figures start in {month_label(entry["first"])}.')
 
 
 def month_label(key: str, short: bool = False) -> str:
@@ -167,10 +188,17 @@ def well_production_panel(ctx, well) -> str:
     first, last = month_label(feed['firstMonth']), month_label(feed['lastMonth'])
     source = (f'<a href="{SOURCE_URL}" rel="noopener">NDIC Monthly Production Reports</a>')
     entry = well.get('production')
+    span = pdf_span(feed)
+    pdf_text = ''
+    if span:
+        pdf_text = (f' Months from {month_label(span[0])} to {month_label(span[1])} are read from the Division\'s PDF reports, which print no '
+                    'flared gas and list a well in a unitized pool only inside its unit\'s total.')
     if not entry:
+        unit_text = (f' Before {month_label(next_month(span[1]))} a well in a unitized pool was listed only inside its unit\'s total, '
+                     'so such a well does not appear on its own in those years either.') if span else ''
         return (f'<section class="panel production"><h2>Production</h2>'
-                f'<p class="note">This well does not appear in the {source} for {first} to {last}, which list every well that '
-                'reported in a month. Earlier production, if any, is not covered by the free reports yet.</p></section>')
+                f'<p class="note">This well does not appear on its own in the {source} for {first} to {last}, which list every well that '
+                f'reported in a month.{unit_text}</p></section>')
     s = summarize(entry)
     kpis = [(number(s['total_oil']), f'bbl oil, {month_label(entry["first"], True)} to {month_label(entry["last"], True)}'),
             (number(s['total_gas']), 'mcf gas'), (number(s['total_water']), 'bbl water'),
@@ -197,4 +225,4 @@ def well_production_panel(ctx, well) -> str:
             f'<script type="application/json" id="production-data">{csv_payload(entry).replace("</", "<\\/")}</script>'
             f'<p class="note">As first reported to NDIC in each month\'s report ({source}, {first} to {last}). Operators amend past months later and the '
             'published reports are not updated, so a month can differ from the current record. A blank or missing month is unknown, not zero; '
-            'two pools reported in one month are summed. Months before May 2015 are not covered yet.</p></section>')
+            f'two pools reported in one month are summed.{pdf_text}{unit_note(feed, well, entry)}</p></section>')

@@ -56,6 +56,20 @@ class HelperTests(unittest.TestCase):
         single = entry('2024-01', '2024-01', [7])
         self.assertIn('show-oil', production.chart_svg(single))
 
+    def test_pdf_span_and_unit_note(self):
+        feed = {'pdf': {'firstMonth': '2003-01', 'lastMonth': '2015-04'}}
+        self.assertEqual(prod.pdf_span(feed), ('2003-01', '2015-04'))
+        self.assertIsNone(prod.pdf_span({'pdf': None}))
+        self.assertIsNone(prod.pdf_span(None))
+        entry = {'first': '2015-05', 'unitPool': True}
+        note = prod.unit_note(feed, {'extras': {'spud': '1981-06-02'}}, entry)
+        self.assertIn('Before May 2015 this well', note)
+        self.assertIn('its own figures start in May 2015', note)
+        self.assertEqual(prod.unit_note(feed, {'extras': {}}, entry), note)                        # spud unknown: say it
+        self.assertEqual(prod.unit_note(feed, {'extras': {'spud': '2019-03-01'}}, entry), '')      # drilled after the PDF years
+        self.assertEqual(prod.unit_note(feed, {'extras': {}}, {'first': '2015-05'}), '')           # not flagged
+        self.assertEqual(prod.unit_note({}, {'extras': {}}, entry), '')                            # no PDF months in the feed
+
     def test_table_csv_payload_and_loader(self):
         e = entry('2024-01', '2025-03', [None] + [10] * 14)
         table = production.table_html(e)
@@ -99,14 +113,16 @@ class BuildTests(unittest.TestCase):
         return (self.out / 'wells' / slug / 'index.html').read_text(encoding='utf-8')
 
     def test_report_and_build_json(self):
-        self.assertEqual(self.report['wellsWithProduction'], 4)
+        self.assertEqual(self.report['wellsWithProduction'], 5)
         p = self.build_json['production']
-        self.assertEqual((p['firstMonth'], p['lastMonth'], p['months'], p['feedWells']), ('2024-01', '2024-12', 12, 5))
+        self.assertEqual((p['firstMonth'], p['lastMonth'], p['months'], p['feedWells']), ('2024-01', '2024-12', 12, 6))
+        self.assertEqual((p['pdfFirstMonth'], p['pdfLastMonth'], p['unitPoolWells']), ('2024-01', '2024-06', 1))
         self.assertEqual((p['matchedByApi'], p['feedWellsNotInLayer'], p['generated']), (1, 1, '2026-11-07T16:50:00Z'))
         self.assertEqual(p['file'], 'well-production.json.gz')
         self.assertTrue((self.out / 'assets' / 'production.js').exists())
         summary = bwp.markdown_summary(self.report)
-        self.assertIn('**Production** for 4 wells', summary)
+        self.assertIn('**Production** for 5 wells', summary)
+        self.assertIn('months 2024-01 to 2024-06 read from the PDF reports, 1 wells reported only inside a unit total', summary)
 
     def test_full_year_well_page(self):
         html = self.page('full')
@@ -122,6 +138,8 @@ class BuildTests(unittest.TestCase):
         self.assertIn('"oil":[1200,980,870,null,760', html)
         self.assertIn('assets/production.js', html)
         self.assertIn('As first reported to NDIC', html)
+        self.assertIn('Months from Jan 2024 to Jun 2024 are read from the Division&#x27;s PDF reports', html.replace("'", '&#x27;'))
+        self.assertNotIn('reported only as a unit total', html)
         self.assertIn('data-name="33-', html)
 
     def test_confidential_short_and_api_matched_wells(self):
@@ -138,10 +156,17 @@ class BuildTests(unittest.TestCase):
 
     def test_well_without_production_says_so_without_zero(self):
         html = self.page('none')
-        self.assertIn('does not appear in the <a href="https://www.dmr.nd.gov/oilgas/mprindex.asp"', html)
+        self.assertIn('does not appear on its own in the <a href="https://www.dmr.nd.gov/oilgas/mprindex.asp"', html)
+        self.assertIn('Before Jul 2024 a well in a unitized pool was listed only inside its unit', html)
         self.assertIn('Jan 2024 to Dec 2024', html)
         self.assertNotIn('prodchart', html)
         self.assertNotIn('assets/production.js', html)
+
+    def test_unit_pool_well_note(self):
+        html = self.page('unitPool')
+        self.assertIn('<b>450</b><span>bbl oil, Jul 24 to Dec 24</span>', html)
+        self.assertIn('Before Jul 2024 this well', html)
+        self.assertIn('reported only as a unit total, so the reports hold no figures for the well itself in those years; its own figures start in Jul 2024.', html)
 
     def test_build_without_feed_has_no_panels(self):
         with tempfile.TemporaryDirectory() as tmp:
