@@ -538,7 +538,7 @@ def well_page(ctx, w):
         f'<section class="panel"><h2>Location &amp; navigation</h2>{location_html}{viewer_html}</section></div>'
         f'{prod.well_production_panel(ctx, w)}{dsu.well_units_panel(ctx, w)}{nearby_html}{attributes_html}'
         f'<script src="{base}/assets/page.js" defer></script>'
-        + (f'<script src="{base}/assets/production.js" defer></script>' if w.get('production') else '')
+        + (f'<script type="module" src="{base}/assets/production.js"></script>' if w.get('production') else '')
     )
     jsonld = [{
         '@context': 'https://schema.org', '@type': 'Place', 'name': w['display_name'], 'url': ctx['base_url'] + path,

@@ -39,7 +39,10 @@ class HelperTests(unittest.TestCase):
         e = entry('2025-11', '2026-03', [100, None, 50, 0, 25])
         svg = production.chart_svg(e)
         self.assertTrue(svg.startswith('<svg class="prodchart show-oil"'))
-        oil = svg[svg.index('<g class="s-oil">'):svg.index('<g class="s-gas">')]
+        self.assertIn('<g class="s-oil">', svg)
+        self.assertNotIn('<g class="s-gas">', svg)                     # gas and water are drawn in the browser
+        self.assertNotIn('<g class="s-water">', svg)
+        oil = svg[svg.index('<g class="s-oil">'):]
         path = oil[oil.index('<path d="') + 9:]
         path = path[:path.index('"')]
         self.assertEqual(path.count('M'), 2)          # one gap, two sub-paths
@@ -47,6 +50,12 @@ class HelperTests(unittest.TestCase):
         self.assertIn('>Oil, bbl per month<', oil)
         self.assertIn('Nov 25', svg)
         self.assertIn('Mar 26', svg)
+        gas = production.series_group(e['v']['gas'], 'gas', 5)
+        self.assertTrue(gas.startswith('<g class="s-gas"><g class="grid"><line x1="52" y1="198" x2="630" y2="198"/><text x="46" y="202">0</text>'))
+        self.assertIn('>Gas, mcf per month<', gas)
+        self.assertIn('<text x="46" y="14">200</text>', gas)          # the top tick is the series maximum (the fixture's gas is twice its oil)
+        self.assertIn('<text x="46" y="108">100</text>', gas)
+        self.assertIn('<g class="s-gas">', production.chart_svg(e, series=('oil', 'gas')))
         long = entry('2015-05', '2026-08', [10] * 136)
         svg = production.chart_svg(long)
         self.assertIn('>2016<', svg)
@@ -55,6 +64,34 @@ class HelperTests(unittest.TestCase):
         self.assertIn('M', production.chart_svg(flat))   # a zero-only well still draws a baseline
         single = entry('2024-01', '2024-01', [7])
         self.assertIn('show-oil', production.chart_svg(single))
+
+    def test_browser_chart_matches_python(self):
+        """templates/production.js must draw a series exactly as series_group does (same geometry and rounding)."""
+        import shutil
+        import subprocess
+        node = shutil.which('node')
+        if not node:
+            self.skipTest('node is not installed')
+        import random
+        rng = random.Random(11)
+        cases = [{'values': [100, None, 50, 0, 25], 'series': 'gas', 'n': 5},
+                 {'values': [None, None], 'series': 'water', 'n': 2},
+                 {'values': [7], 'series': 'oil', 'n': 1},
+                 {'values': [0, 0, 0], 'series': 'gas', 'n': 3},
+                 {'values': [2033, 1696, 1658, None, 1200, 5, 2033], 'series': 'water', 'n': 7}]
+        for _ in range(6):
+            n = rng.randint(2, 284)
+            cases.append({'values': [None if rng.random() < 0.15 else rng.randint(0, 50000) for _ in range(n)], 'series': rng.choice(['oil', 'gas', 'water']), 'n': n})
+        module = (Path(__file__).resolve().parents[1] / 'wells' / 'templates' / 'production.js').as_uri()
+        with tempfile.TemporaryDirectory() as tmp:
+            cases_path = Path(tmp) / 'cases.json'
+            cases_path.write_text(json.dumps(cases), encoding='utf-8')
+            script = ('import {seriesGroup} from %r; import {readFileSync} from "node:fs"; '
+                      'const cases = JSON.parse(readFileSync(process.argv[1], "utf8")); '
+                      'process.stdout.write(cases.map(c => seriesGroup(c.values, c.series, c.n)).join("\\n"));' % module)
+            result = subprocess.run([node, '--input-type=module', '-e', script, str(cases_path)], capture_output=True, text=True, check=True)
+        expected = [production.series_group(c['values'], c['series'], c['n']) for c in cases]
+        self.assertEqual(result.stdout.split('\n'), expected)
 
     def test_pdf_span_and_unit_note(self):
         feed = {'pdf': {'firstMonth': '2003-01', 'lastMonth': '2015-04'}}
@@ -76,20 +113,21 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(table.count('<tr><th><time'), 12)                    # last twelve months only
         self.assertIn('<time datetime="2025-03">Mar 2025</time>', table)
         self.assertNotIn('2024-01', table)
+        self.assertNotIn('class="num"', table)                                 # figures align by position (CSS), not by a class per cell
+        self.assertIn('<th>Oil bbl</th>', table)
         payload = json.loads(production.csv_payload(e))
         self.assertEqual(payload['start'], '2024-01')
-        self.assertEqual(payload['oil'][0], None)
+        self.assertEqual(payload['oil'], ',' + ','.join(['10'] * 14))          # an unknown month is an empty field
+        self.assertEqual(payload['days'], ',' + ','.join(['30'] * 14))
         self.assertEqual(sorted(payload), ['days', 'flared', 'gas', 'gasSold', 'oil', 'start', 'water'])
         with tempfile.TemporaryDirectory() as tmp:
-            bad = Path(tmp) / 'x.json'
-            bad.write_text(json.dumps({'version': 1, 'units': [], 'orders': []}), encoding='utf-8')
+            good = Path(tmp) / 'feed.json'
+            good.write_text(json.dumps({'version': 1, 'kind': 'well-production', 'months': ['2024-01'], 'wells': {}}), encoding='utf-8')
+            self.assertEqual(production.load_production(good)['months'], ['2024-01'])
+            bad = Path(tmp) / 'bad.json'
+            bad.write_text(json.dumps({'version': 2, 'kind': 'well-production', 'months': [], 'wells': {}}), encoding='utf-8')
             with self.assertRaises(ValueError):
                 production.load_production(bad)
-            good = Path(tmp) / 'ok.json.gz'
-            with gzip.open(good, 'wt', encoding='utf-8') as handle:
-                json.dump({'version': 1, 'kind': 'well-production', 'months': ['2024-01'], 'wells': {}}, handle)
-            self.assertEqual(production.load_production(good)['months'], ['2024-01'])
-
 
 class BuildTests(unittest.TestCase):
     @classmethod
@@ -132,11 +170,12 @@ class BuildTests(unittest.TestCase):
         self.assertIn('<dt>Unknown months</dt><dd>1 of 12', html)
         self.assertIn('<dt>Last month with oil</dt><dd>Dec 2024</dd>', html)
         self.assertIn('<dt>Peak month</dt><dd>Jan 2024, 1,200 bbl</dd>', html)
-        self.assertIn('<td class="num">—</td>', html)                                      # April in the table
-        self.assertIn('<time datetime="2024-09">Sep 2024</time></th><td class="num">0</td>', html)   # a reported zero is a zero
+        self.assertIn('<td>—</td>', html)                                                   # April in the table
+        self.assertIn('<time datetime="2024-09">Sep 2024</time></th><td>0</td>', html)   # a reported zero is a zero
         self.assertIn('id="production-data"', html)
-        self.assertIn('"oil":[1200,980,870,null,760', html)
-        self.assertIn('assets/production.js', html)
+        self.assertIn('"oil":"1200,980,870,,760', html)
+        self.assertNotIn('<g class="s-gas">', html)                                       # drawn in the browser on request
+        self.assertIn('<script type="module" src="/repo/assets/production.js">', html)
         self.assertIn('As first reported to NDIC', html)
         self.assertIn('Months from Jan 2024 to Jun 2024 are read from the Division&#x27;s PDF reports', html.replace("'", '&#x27;'))
         self.assertNotIn('reported only as a unit total', html)
