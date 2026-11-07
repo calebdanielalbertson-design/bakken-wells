@@ -1,11 +1,12 @@
 """Decide whether a scheduled rebuild would change the published site.
 
     python scripts/wells/changed.py --live https://.../build.json --provenance work/dmr/download-provenance.json \
-        [--data work/data/well-index-data.json.gz] [--generator <commit>] [--github-output "$GITHUB_OUTPUT"]
+        [--data work/data/well-index-data.json.gz] [--production work/data/well-production.json.gz] \
+        [--generator <commit>] [--github-output "$GITHUB_OUTPUT"]
 
 Compares what this run downloaded with what the live site was built from (its build.json):
-the SHA-256 of every DMR archive, the generation time of the spacing-unit data file, and the
-generator commit. Prints one line per input and writes `unchanged=true|false` to the GitHub
+the SHA-256 of every DMR archive, the generation times of the spacing-unit data file and the
+production feed, and the generator commit. Prints one line per input and writes `unchanged=true|false` to the GitHub
 Actions output file when given. Anything that cannot be compared (no live build.json yet, a
 network error, a missing field) counts as changed, so the site is rebuilt rather than left stale.
 """
@@ -36,7 +37,7 @@ def data_generated(path: Path | None):
         return json.load(handle).get('generated')
 
 
-def compare(live: dict, provenance: dict, generated, generator):
+def compare(live: dict, provenance: dict, generated, generator, production_generated=None):
     """Returns (unchanged, lines). Every input that differs or cannot be compared is a change."""
     lines = []
     unchanged = True
@@ -54,6 +55,10 @@ def compare(live: dict, provenance: dict, generated, generator):
     same = live_generated == generated
     unchanged &= same
     lines.append(f'unit data: {"unchanged" if same else "changed"} ({generated or "none"} vs live {live_generated or "none"})')
+    live_production = (live.get('production') or {}).get('generated')
+    same = live_production == production_generated
+    unchanged &= same
+    lines.append(f'production feed: {"unchanged" if same else "changed"} ({production_generated or "none"} vs live {live_production or "none"})')
     if generator:
         live_generator = live.get('generator')
         same = live_generator == generator
@@ -67,6 +72,7 @@ def main(argv=None) -> int:
     parser.add_argument('--live', required=True, help='URL or path of the live site\'s build.json')
     parser.add_argument('--provenance', required=True, type=Path, help='download-provenance.json from fetch_dmr.py')
     parser.add_argument('--data', type=Path, help='well-index-data.json.gz, if the build will use one')
+    parser.add_argument('--production', type=Path, help='well-production.json.gz, if the build will use one')
     parser.add_argument('--generator', help='commit the generator runs from (GITHUB_SHA)')
     parser.add_argument('--github-output', type=Path, help='append unchanged=true|false to this file')
     args = parser.parse_args(argv)
@@ -74,7 +80,8 @@ def main(argv=None) -> int:
         live = read_json(args.live)
         provenance = read_json(str(args.provenance))
         generated = data_generated(args.data)
-        unchanged, lines = compare(live, provenance, generated, args.generator)
+        production_generated = data_generated(args.production)
+        unchanged, lines = compare(live, provenance, generated, args.generator, production_generated)
     except Exception as error:  # noqa: BLE001 - any failure means "rebuild", never "skip"
         unchanged, lines = False, [f'could not compare with the live site ({error.__class__.__name__}: {error}); rebuilding']
     for line in lines:

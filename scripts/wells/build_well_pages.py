@@ -36,6 +36,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from wells import production as prod  # noqa: E402
 from wells import units as dsu  # noqa: E402
 from wells.shapefile import load_layer  # noqa: E402
 
@@ -533,8 +534,9 @@ def well_page(ctx, w):
         f'<div class="badges">{"".join(badges)}</div>'
         f'<div class="grid"><section class="panel"><h2>Well facts</h2><dl class="facts">{facts_html}</dl></section>'
         f'<section class="panel"><h2>Location &amp; navigation</h2>{location_html}{viewer_html}</section></div>'
-        f'{dsu.well_units_panel(ctx, w)}{nearby_html}{attributes_html}'
+        f'{prod.well_production_panel(ctx, w)}{dsu.well_units_panel(ctx, w)}{nearby_html}{attributes_html}'
         f'<script src="{base}/assets/page.js" defer></script>'
+        + (f'<script src="{base}/assets/production.js" defer></script>' if w.get('production') else '')
     )
     jsonld = [{
         '@context': 'https://schema.org', '@type': 'Place', 'name': w['display_name'], 'url': ctx['base_url'] + path,
@@ -667,7 +669,7 @@ def sitemap_urlset(entries):
 
 
 def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path | None = None, data: Path | None = None, generator: str | None = None,
-          site_verification: str | None = None):
+          site_verification: str | None = None, production: Path | None = None):
     started = datetime.now(timezone.utc)
     wells, report = load_sources(source, limit=limit)
     if not wells:
@@ -694,6 +696,11 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
         dsu_data = dsu.load_data(data)
         units, orders, dsu_stats = dsu.attach(wells, dsu_data)
         ctx['has_data'] = True
+    prod_data, prod_stats = None, {}
+    if production:
+        prod_data = prod.load_production(production)
+        prod_stats = prod.attach(wells, prod_data)
+        ctx['production'] = {'firstMonth': prod_data['months'][0], 'lastMonth': prod_data['months'][-1], 'generated': prod_data.get('generated')}
 
     out = Path(out)
     if out.exists():
@@ -704,6 +711,7 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
     shutil.copy(TEMPLATES / 'well.css', out / 'assets' / 'well.css')
     shutil.copy(TEMPLATES / 'search.js', out / 'assets' / 'search.js')
     shutil.copy(TEMPLATES / 'page.js', out / 'assets' / 'page.js')
+    shutil.copy(TEMPLATES / 'production.js', out / 'assets' / 'production.js')
     (out / '.nojekyll').write_text('')
     if ctx['host'] and not ctx['host'].endswith('github.io') and not ctx['base_path']:
         (out / 'CNAME').write_text(ctx['host'] + '\n')
@@ -799,6 +807,10 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
         'unitsWithMembers': dsu_stats.get('unitsWithMembers', 0), 'unitMembersNotInLayer': dsu_stats.get('membersNotInLayer', 0),
         'data': ({'file': Path(data).name, 'generated': dsu_data.get('generated'), 'counts': dsu_data.get('counts'), 'sources': dsu_data.get('sources')}
                  if dsu_data else None),
+        'wellsWithProduction': prod_stats.get('wellsWithProduction', 0),
+        'production': ({'file': Path(production).name, 'generated': prod_data.get('generated'), 'firstMonth': prod_data['months'][0],
+                        'lastMonth': prod_data['months'][-1], 'months': len(prod_data['months']), 'source': (prod_data.get('source') or {}).get('url'),
+                        **prod_stats} if prod_data else None),
         'seconds': round((datetime.now(timezone.utc) - started).total_seconds(), 1),
     })
     write(out / 'build.json', json.dumps(report, indent=2, default=str) + '\n')
@@ -820,6 +832,12 @@ def markdown_summary(report):
                   f'generated {report["data"]["generated"]}; {report["wellsWithUnits"]:,} wells sit in a unit; {report["unitMembersNotInLayer"]:,} unit members were not in the wells layer']
     else:
         lines += ['- No spacing-unit data (`--data` not given): no unit or order pages']
+    if report.get('production'):
+        p = report['production']
+        lines += [f'- **Production** for {report["wellsWithProduction"]:,} wells from `{p["file"]}` generated {p["generated"]}: {p["firstMonth"]} to {p["lastMonth"]} '
+                  f'({p["months"]} months, {p["feedWells"]:,} wells in the feed, {p["matchedByApi"]:,} matched by API, {p["feedWellsNotInLayer"]:,} not in the wells layer)']
+    else:
+        lines += ['- No production feed (`--production` not given): no production panels']
     lines += ['']
     for archive in report['archives']:
         lines += [f'### {archive["file"]} ({archive["kind"]})', '',
@@ -855,6 +873,7 @@ def main(argv=None) -> int:
     parser.add_argument('--limit', type=int, help='only the first N records (quick local builds)')
     parser.add_argument('--summary', type=Path, help='append a Markdown build summary to this file (GitHub step summary)')
     parser.add_argument('--data', type=Path, help='well-index-data.json.gz from the pipeline: adds spacing-unit and order pages')
+    parser.add_argument('--production', type=Path, help='well-production.json.gz from the pipeline: adds the production panel to well pages')
     parser.add_argument('--generator', help='commit the generator runs from, recorded in build.json (GITHUB_SHA)')
     parser.add_argument('--site-verification', default=os.environ.get('GOOGLE_SITE_VERIFICATION'),
                         help='content of the google-site-verification meta tag Search Console asked for (default: $GOOGLE_SITE_VERIFICATION)')
@@ -866,11 +885,11 @@ def main(argv=None) -> int:
         parser.error('--source and --out are required (or use --inspect)')
     try:
         report = build(args.source, args.out, args.base_url, limit=args.limit, summary=args.summary, data=args.data, generator=args.generator,
-                       site_verification=args.site_verification)
+                       site_verification=args.site_verification, production=args.production)
     except (BuildError, FileNotFoundError, ValueError) as error:
         print(f'error: {error}', file=sys.stderr)
         return 1
-    print(f'{report["wells"]:,} wells, {report["units"]:,} units, {report["orders"]:,} orders -> {report["files"]:,} files, {report["bytes"] / 1e6:.1f} MB at {args.out} (base {report["baseUrl"]}) in {report["seconds"]} s')
+    print(f'{report["wells"]:,} wells ({report["wellsWithProduction"]:,} with production), {report["units"]:,} units, {report["orders"]:,} orders -> {report["files"]:,} files, {report["bytes"] / 1e6:.1f} MB at {args.out} (base {report["baseUrl"]}) in {report["seconds"]} s')
     for warning in report['warnings']:
         print(f'warning: {warning}')
     return 0

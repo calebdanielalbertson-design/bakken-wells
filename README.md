@@ -115,6 +115,36 @@ The first time, create the release instead: `gh release create well-index-data w
 The file records its own generation time and the hashes of its inputs; `build.json` repeats them
 under `data`, and the unit and order sitemaps use the generation date as `lastmod`.
 
+## Production
+
+Each well page carries a "Production" panel: monthly oil, gas and water as an inline chart (one
+series shown at a time), the last twelve months as a table, totals over the covered months, the
+first and last reported month, and a CSV of every month built in the browser from data embedded
+in the page. The source is NDIC's free Monthly Production Reports
+(<https://www.dmr.nd.gov/oilgas/mprindex.asp>): one Excel workbook per month since May 2015,
+listing every well that reported in that month. The pipeline downloads them with full provenance
+(`explorer/fetch_monthly_production.py`) and packs them into `well-production.json.gz`
+(`explorer/prepare_free_production.py`), published as a second asset of the same
+`well-index-data` release:
+
+```
+python explorer/fetch_monthly_production.py --cache local-data/monthly-production
+python explorer/prepare_free_production.py --cache local-data/monthly-production --out work/well-production.json.gz
+gh release upload well-index-data work/well-production.json.gz --clobber --repo calebdanielalbertson-design/bakken-wells
+gh workflow run well-pages.yml --repo calebdanielalbertson-design/bakken-wells
+```
+
+Rules the panel keeps: a reported zero is a zero; a month the report left NULL (confidential
+wells), a month without a row and a negative cell are unknown and shown as "—", never as zero;
+totals count known months only and say when nothing is known; two pools reported in one month are
+summed. The values are as first reported: operators amend past months later and the Division does
+not update the published workbooks, so a month can differ from the current record, and every
+panel says so. Wells matched to the feed by NDIC file number, or by API when the file number is
+not in the layer. A well absent from the feed gets a short note, not a chart. Months before
+May 2015 are not covered yet (the Division publishes them as PDF only). `build.json` records the
+feed's file, generation time, month range and match counts under `production`, and the daily
+change check treats a new feed as a reason to rebuild.
+
 ## Running locally
 
 ```
@@ -162,9 +192,8 @@ wells". The 3D page has no URL state yet, so its link is generic.
 
 ## Known limits and what comes next
 
-- Production and survey summaries are not on the pages yet; the project's prepared datasets carry
-  monthly production for 22,000 wells and they are the next addition, once the data-rights review
-  of the production sources is settled.
+- Production covers May 2015 onward, as first reported, from the free monthly reports; the PDF
+  months from January 2003 to April 2015 and survey summaries are not on the pages yet.
 - Unit membership covers surveyed Bakken-system horizontals only, so vertical wells and wells
   without a survey do not appear inside any unit. Order history covers the orders in the research
   snapshot whose land description could be matched to a published footprint, not every order the
@@ -174,11 +203,13 @@ wells". The 3D page has no URL state yet, so its link is generic.
   are separate pages until a grouping table is added.
 - New wells appear within a day of DMR adding them to the wells layer; the unit and order data
   refreshes only when a new snapshot is published from the pipeline.
-- About 400 MB of HTML for 44,000 wells (8 to 9 KB a page, about 30 MB compressed in the Pages
-  artifact), within GitHub Pages limits.
+- About 560 MB of HTML before production and roughly 750 MB with it (a well page with a
+  production panel is 15 to 20 KB), within GitHub Pages limits but worth watching.
 
 ## Data
 
 North Dakota Industrial Commission, Department of Mineral Resources, Oil and Gas Division, public
-GIS downloads at <https://gis.dmr.nd.gov/gisdownload.asp>. The state's accuracy disclaimer applies;
-every page states the retrieval date. This is an independent project, not affiliated with NDIC.
+GIS downloads at <https://gis.dmr.nd.gov/gisdownload.asp> and the public Monthly Production Reports
+at <https://www.dmr.nd.gov/oilgas/mprindex.asp>. The state's accuracy disclaimer applies; every
+page states the retrieval date and the production panel states its report months. This is an
+independent project, not affiliated with NDIC.

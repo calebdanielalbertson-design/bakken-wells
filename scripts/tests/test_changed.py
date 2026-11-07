@@ -18,7 +18,12 @@ class CompareTests(unittest.TestCase):
     def test_identical_inputs_are_unchanged(self):
         unchanged, lines = changed.compare(LIVE, PROVENANCE, '2026-11-07T04:44:11Z', LIVE['generator'])
         self.assertTrue(unchanged)
-        self.assertEqual(len(lines), 4)
+        self.assertEqual(len(lines), 5)
+        with_production = dict(LIVE, production={'generated': '2026-11-07T16:50:00Z'})
+        self.assertTrue(changed.compare(with_production, PROVENANCE, '2026-11-07T04:44:11Z', LIVE['generator'], '2026-11-07T16:50:00Z')[0])
+        self.assertFalse(changed.compare(with_production, PROVENANCE, '2026-11-07T04:44:11Z', LIVE['generator'], '2026-11-08T00:00:00Z')[0])
+        self.assertFalse(changed.compare(with_production, PROVENANCE, '2026-11-07T04:44:11Z', LIVE['generator'], None)[0])   # feed gone
+        self.assertFalse(changed.compare(LIVE, PROVENANCE, '2026-11-07T04:44:11Z', LIVE['generator'], '2026-11-07T16:50:00Z')[0])   # feed new
 
     def test_any_difference_is_a_change(self):
         new_wells = {'archives': [dict(PROVENANCE['archives'][0], sha256='d' * 64), PROVENANCE['archives'][1]]}
