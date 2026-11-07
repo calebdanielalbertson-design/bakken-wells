@@ -7,9 +7,9 @@ May 2015). A null month is unknown, never zero: confidential wells report NULL, 
 from a month's report has no row. The PDF years print no flared gas, and a well in a unitized
 pool appears in them only inside its unit's total; the feed flags such wells (unitPool) and the
 panel says so. This module attaches the feed to the wells read from the
-DMR layer and renders the "Production" panel of a well page: an inline SVG chart (oil, gas and
-water, one shown at a time), a twelve-month table, totals over the covered months and a CSV
-built in the browser from data embedded in the page.
+DMR layer and renders the "Production" panel of a well page: an inline SVG chart of oil (the browser
+draws gas or water from the embedded data when asked), a twelve-month table, totals over the covered
+months and a CSV built in the browser from the same data.
 """
 from __future__ import annotations
 
@@ -119,49 +119,64 @@ def number(value) -> str:
     return '—' if value is None else f'{value:,}'
 
 
-def chart_svg(entry, *, width=640, height=220) -> str:
-    """Oil, gas and water as three line groups; CSS shows the one named by the svg's class."""
+GEOMETRY = {'width': 640, 'height': 220, 'left': 52, 'right': 10, 'top': 10, 'bottom': 22}   # mirrored in templates/production.js
+
+
+def series_group(values, series, n=None) -> str:
+    """One series of the chart as an SVG group: grid with three ticks, unit label and the line, broken at unknown months.
+
+    templates/production.js builds the same markup in the browser for the series the page does not carry
+    (the arithmetic and rounding are mirrored there; test_production checks the two agree)."""
+    label, unit = SERIES[series]
+    g = GEOMETRY
+    n = len(values) if n is None else n
+    left, top = g['left'], g['top']
+    plot_w, plot_h = g['width'] - left - g['right'], g['height'] - top - g['bottom']
+    step = plot_w / (n - 1) if n > 1 else 0
+    known = [x for x in values if x is not None]
+    vmax = max(known) if known else 0
+    scale = plot_h / vmax if vmax else 0
+    d, pen_down = [], False
+    for i, value in enumerate(values):
+        if value is None:
+            pen_down = False
+            continue
+        x = left + i * step if n > 1 else left + plot_w / 2
+        y = top + plot_h - value * scale
+        d.append(f'{"L" if pen_down else "M"}{x:.0f},{y:.0f}')
+        pen_down = True
+    ticks = ''
+    for fraction in (0, 0.5, 1):
+        y = top + plot_h - fraction * plot_h
+        ticks += (f'<line x1="{left}" y1="{y:.0f}" x2="{g["width"] - g["right"]}" y2="{y:.0f}"/>'
+                  f'<text x="{left - 6}" y="{y + 4:.0f}">{int(vmax * fraction):,}</text>')
+    return (f'<g class="s-{series}"><g class="grid">{ticks}</g><text class="unit" x="{left + 8}" y="{top + 12}">{label}, {unit} per month</text>'
+            f'<path d="{" ".join(d) or f"M{left},{top + plot_h}"}"><title>{label}, {unit} per month</title></path></g>')
+
+
+def chart_svg(entry, *, series=('oil',)) -> str:
+    """The chart with the year axis and the given series drawn; the page carries oil only, and the browser adds
+    gas or water from the embedded data when the visitor asks for them (CSS shows the series named by the svg's class)."""
     months = span_months(entry)
     n = len(months)
-    left, right, top, bottom = 52, 10, 10, 22
-    plot_w, plot_h = width - left - right, height - top - bottom
+    g = GEOMETRY
+    left, plot_w = g['left'], g['width'] - g['left'] - g['right']
     step = plot_w / (n - 1) if n > 1 else 0
-    groups = []
-    for series, (label, unit) in SERIES.items():
-        values = entry['v'][series]
-        known = [x for x in values if x is not None]
-        vmax = max(known) if known else 0
-        scale = plot_h / vmax if vmax else 0
-        d, pen_down = [], False
-        for i, value in enumerate(values):
-            if value is None:
-                pen_down = False
-                continue
-            x = left + i * step if n > 1 else left + plot_w / 2
-            y = top + plot_h - value * scale
-            d.append(f'{"L" if pen_down else "M"}{x:.0f},{y:.0f}')
-            pen_down = True
-        ticks = ''
-        for fraction in (0, 0.5, 1):
-            y = top + plot_h - fraction * plot_h
-            ticks += (f'<line x1="{left}" y1="{y:.0f}" x2="{width - right}" y2="{y:.0f}"/>'
-                      f'<text x="{left - 6}" y="{y + 4:.0f}">{round(vmax * fraction):,}</text>')
-        groups.append(f'<g class="s-{series}"><g class="grid">{ticks}</g><text class="unit" x="{left + 8}" y="{top + 12}">{label}, {unit} per month</text>'
-                      f'<path d="{" ".join(d) or f"M{left},{top + plot_h}"}"><title>{label}, {unit} per month</title></path></g>')
     labels = ''
     januaries = [i for i, m in enumerate(months) if m.endswith('-01')]
     if n > 1 and len(januaries) >= 2:
         every = max(1, round(len(januaries) / 8))
         for k, i in enumerate(januaries):
             if k % every == 0:
-                labels += f'<text x="{left + i * step:.0f}" y="{height - 6}">{months[i][:4]}</text>'
+                labels += f'<text x="{left + i * step:.0f}" y="{g["height"] - 6}">{months[i][:4]}</text>'
     else:
-        labels += f'<text x="{left}" y="{height - 6}">{month_label(months[0], True)}</text>'
+        labels += f'<text x="{left}" y="{g["height"] - 6}">{month_label(months[0], True)}</text>'
         if n > 1:
-            labels += f'<text x="{left + plot_w:.0f}" y="{height - 6}" text-anchor="end">{month_label(months[-1], True)}</text>'
-    return (f'<svg class="prodchart show-oil" viewBox="0 0 {width} {height}" role="img" '
+            labels += f'<text x="{left + plot_w:.0f}" y="{g["height"] - 6}" text-anchor="end">{month_label(months[-1], True)}</text>'
+    groups = ''.join(series_group(entry['v'][key], key, n) for key in series)
+    return (f'<svg class="prodchart show-oil" viewBox="0 0 {g["width"]} {g["height"]}" role="img" '
             f'aria-label="Monthly production, {month_label(months[0])} to {month_label(months[-1])}">'
-            f'<g class="axis">{labels}</g>{"".join(groups)}</svg>')
+            f'<g class="axis">{labels}</g>{groups}</svg>')
 
 
 def table_html(entry) -> str:
@@ -169,15 +184,17 @@ def table_html(entry) -> str:
     v = entry['v']
     rows = ''
     for i in range(max(0, len(months) - TABLE_MONTHS), len(months)):
-        cells = ''.join(f'<td class="num">{number(v[s][i])}</td>' for s in ('oil', 'gas', 'water', 'days'))
+        cells = ''.join(f'<td>{number(v[s][i])}</td>' for s in ('oil', 'gas', 'water', 'days'))
         rows += f'<tr><th><time datetime="{months[i]}">{month_label(months[i])}</time></th>{cells}</tr>'
-    return (f'<table class="units production"><thead><tr><th>Month</th><th class="num">Oil bbl</th><th class="num">Gas mcf</th>'
-            f'<th class="num">Water bbl</th><th class="num">Days</th></tr></thead><tbody>{rows}</tbody></table>')
+    return (f'<table class="units production"><thead><tr><th>Month</th><th>Oil bbl</th><th>Gas mcf</th>'
+            f'<th>Water bbl</th><th>Days</th></tr></thead><tbody>{rows}</tbody></table>')
 
 
 def csv_payload(entry) -> str:
-    """The page's own copy of the series, for the CSV the browser builds."""
-    return json.dumps({'start': entry['first'], **{s: entry['v'][s] for s in CSV_SERIES}}, separators=(',', ':'))
+    """The page's own copy of the series for the browser (chart and CSV): the first month and, per series, one
+    comma-joined string with an empty field for an unknown month (a fifth the size of a JSON array of nulls)."""
+    return json.dumps({'start': entry['first'], **{s: ','.join('' if x is None else str(x) for x in entry['v'][s]) for s in CSV_SERIES}},
+                      separators=(',', ':'))
 
 
 def well_production_panel(ctx, well) -> str:
