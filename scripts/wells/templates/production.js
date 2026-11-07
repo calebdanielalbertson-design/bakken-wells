@@ -9,12 +9,8 @@
       if (chart) chart.setAttribute('class', 'prodchart show-' + button.dataset.series);
     });
   }
-  const csv = panel.querySelector('button.csv');
-  const raw = document.getElementById('production-data');
-  if (!csv || !raw) return;
-  csv.addEventListener('click', () => {
-    let data;
-    try { data = JSON.parse(raw.textContent); } catch { return; }
+  // One row per month from the first reported month; an unknown month is an empty cell, never 0.
+  const buildCsv = (data) => {
     const keys = ['oil', 'water', 'gas', 'gasSold', 'flared', 'days'];
     const lines = ['month,oil_bbl,water_bbl,gas_mcf,gas_sold_mcf,flared_mcf,days'];
     let [year, month] = data.start.split('-').map(Number);
@@ -25,7 +21,16 @@
       if (month === 13) { month = 1; year += 1; }
     }
     lines.push('# Source: NDIC Monthly Production Reports (https://www.dmr.nd.gov/oilgas/mprindex.asp), values as first reported; blank = unknown');
-    const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv' });
+    return lines.join('\n') + '\n';
+  };
+  window.bakkenProductionCsv = buildCsv;
+  const csv = panel.querySelector('button.csv');
+  const raw = document.getElementById('production-data');
+  if (!csv || !raw) return;
+  csv.addEventListener('click', () => {
+    let data;
+    try { data = JSON.parse(raw.textContent); } catch { return; }
+    const blob = new Blob([buildCsv(data)], { type: 'text/csv' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = csv.dataset.name || 'production.csv';

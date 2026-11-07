@@ -125,7 +125,7 @@ def chart_svg(entry, *, width=640, height=220) -> str:
             y = top + plot_h - fraction * plot_h
             ticks += (f'<line x1="{left}" y1="{y:.0f}" x2="{width - right}" y2="{y:.0f}"/>'
                       f'<text x="{left - 6}" y="{y + 4:.0f}">{round(vmax * fraction):,}</text>')
-        groups.append(f'<g class="s-{series}"><g class="grid">{ticks}</g><text class="unit" x="{left - 6}" y="{top - 1}">{unit}</text>'
+        groups.append(f'<g class="s-{series}"><g class="grid">{ticks}</g><text class="unit" x="{left + 8}" y="{top + 12}">{label}, {unit} per month</text>'
                       f'<path d="{" ".join(d) or f"M{left},{top + plot_h}"}"><title>{label}, {unit} per month</title></path></g>')
     labels = ''
     januaries = [i for i, m in enumerate(months) if m.endswith('-01')]

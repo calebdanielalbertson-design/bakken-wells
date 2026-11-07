@@ -44,7 +44,7 @@ class HelperTests(unittest.TestCase):
         path = path[:path.index('"')]
         self.assertEqual(path.count('M'), 2)          # one gap, two sub-paths
         self.assertEqual(path.count('L'), 2)
-        self.assertIn('>bbl<', oil)
+        self.assertIn('>Oil, bbl per month<', oil)
         self.assertIn('Nov 25', svg)
         self.assertIn('Mar 26', svg)
         long = entry('2015-05', '2026-08', [10] * 136)

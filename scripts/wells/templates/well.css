@@ -121,7 +121,7 @@ ul.plain.long{columns:1}
 .prodchart text{font:600 10px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:var(--muted)}
 .prodchart .grid text{text-anchor:end}
 .prodchart .grid line{stroke:var(--line);stroke-width:1}
-.prodchart .unit{text-anchor:end;font-weight:700}
+.prodchart .unit{text-anchor:start;font-weight:700;fill:var(--ink)}
 .prodchart .axis text{text-anchor:middle}
 .prodchart path{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
 .prodchart .s-oil path{stroke:var(--lime)}
