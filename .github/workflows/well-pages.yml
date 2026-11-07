@@ -1,0 +1,130 @@
+name: Well pages
+
+# Builds one static page per North Dakota well from the public NDIC/DMR GIS download and
+# publishes the result to this repository's GitHub Pages site.
+#   - weekly on a schedule (DMR refreshes the wells layer continuously)
+#   - on demand from the Actions tab (optionally without deploying)
+#   - after changes to the generator land on main
+#   - on pull requests that touch the generator (build and report only, no deploy)
+
+on:
+  schedule:
+    - cron: '17 9 * * 2'
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy to GitHub Pages after building
+        type: boolean
+        default: true
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/wells/**'
+      - '.github/workflows/well-pages.yml'
+  pull_request:
+    paths:
+      - 'scripts/wells/**'
+      - '.github/workflows/well-pages.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: well-pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Fetch DMR data and build pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Decide the public base URL
+        id: base
+        env:
+          CONFIGURED: ${{ vars.WELLS_BASE_URL }}
+        run: |
+          if [ -n "$CONFIGURED" ]; then
+            base="${CONFIGURED%/}"
+          else
+            base="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
+          fi
+          echo "url=$base" >> "$GITHUB_OUTPUT"
+          echo "Base URL: $base"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Tests (shapefile reader, builder, fixtures, search)
+        run: |
+          python -m unittest discover -s scripts/tests -p 'test_*.py'
+          node tests/test_well_search.mjs
+
+      - name: List archives on the DMR download page
+        run: python scripts/wells/fetch_dmr.py --list || echo "::warning::Could not list the DMR download page"
+
+      - name: Download the wells archive
+        run: python scripts/wells/fetch_dmr.py --out work/dmr
+
+      - name: Inspect the layers' columns
+        run: |
+          for archive in work/dmr/*.zip; do
+            python scripts/wells/build_well_pages.py --inspect "$archive" || echo "::warning::Could not inspect $archive"
+          done
+
+      - name: Build the pages
+        run: |
+          python scripts/wells/build_well_pages.py \
+            --source work/dmr \
+            --out work/wells-site \
+            --base-url "${{ steps.base.outputs.url }}" \
+            --summary work/build-summary.md
+          cat work/build-summary.md >> "$GITHUB_STEP_SUMMARY"
+          cat work/build-summary.md
+
+      - name: Keep the build report
+        uses: actions/upload-artifact@v4
+        with:
+          name: well-pages-report
+          path: |
+            work/wells-site/build.json
+            work/dmr/download-provenance.json
+          retention-days: 90
+
+      # Same tarball actions/upload-pages-artifact would build, minus its per-file log line
+      # (tens of thousands of them), so the column report above stays readable in the log.
+      - name: Package for GitHub Pages
+        run: tar --dereference --hard-dereference --directory work/wells-site --exclude=.git --exclude=.github -cf "$RUNNER_TEMP/artifact.tar" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: github-pages
+          path: ${{ runner.temp }}/artifact.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.deploy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

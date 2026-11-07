@@ -1,0 +1,30 @@
+{
+  "note": "Plain-language readings shown beside the NDIC code as published. Edit freely; unknown codes are shown as published.",
+  "status": {
+    "A": "Active",
+    "AB": "Abandoned",
+    "CONFIDENTIAL": "Confidential (tight hole)",
+    "DRL": "Drilling",
+    "DRY": "Dry hole",
+    "EXP": "Expired permit",
+    "IA": "Inactive",
+    "LOC": "Permitted location, not yet drilled",
+    "NC": "Not completed",
+    "PA": "Plugged and abandoned",
+    "PNC": "Permit cancelled",
+    "TA": "Temporarily abandoned",
+    "TATD": "Temporarily abandoned at total depth"
+  },
+  "type": {
+    "OG": "Oil and gas",
+    "GI": "Gas injection",
+    "WI": "Water injection",
+    "SWD": "Saltwater disposal",
+    "WS": "Water source",
+    "STRAT": "Stratigraphic test",
+    "DRY": "Dry",
+    "CBM": "Coalbed methane",
+    "GS": "Gas storage",
+    "AGI": "Acid gas injection"
+  }
+}

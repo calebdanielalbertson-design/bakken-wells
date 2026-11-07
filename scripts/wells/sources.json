@@ -1,0 +1,22 @@
+{
+  "downloadPage": "https://gis.dmr.nd.gov/gisdownload.asp",
+  "attribution": "North Dakota Industrial Commission, Department of Mineral Resources, Oil and Gas Division (public GIS downloads)",
+  "sources": [
+    {
+      "name": "wells",
+      "kind": "wells",
+      "required": true,
+      "file": "OGD_Wells.zip",
+      "url": "https://gis.dmr.nd.gov/downloads/oilgas/shapefile/OGD_Wells.zip",
+      "note": "Every well record NDIC publishes with a surface location, including permitted locations that have not been drilled."
+    },
+    {
+      "name": "permits",
+      "kind": "permits",
+      "required": false,
+      "file": "OGD_PermitStatusBeforeSpud.zip",
+      "url": "https://gis.dmr.nd.gov/downloads/oilgas/shapefile/OGD_PermitStatusBeforeSpud.zip",
+      "note": "Permit-status-before-spud layer from the same download page. Optional: if it cannot be read, the build logs a warning and continues. Records whose file number is not already in OGD_Wells are added as permitted locations."
+    }
+  ]
+}
