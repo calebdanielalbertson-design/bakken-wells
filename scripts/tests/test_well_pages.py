@@ -216,6 +216,27 @@ class BuildTests(unittest.TestCase):
         self.assertIn('Permitted locations not yet drilled', county) if 'LOC' in county else None
         self.assertIn('<h1>', county)
 
+    def test_sitemap_lastmod_is_the_dmr_file_date_when_known(self):
+        ns = {'s': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+        # the fixture's download record has no Last-Modified: the retrieval date is the fallback
+        self.assertEqual(self.report['layerDate'], None)
+        self.assertEqual(ET.parse(self.out / 'sitemap-wells-1.xml').getroot().find('s:url/s:lastmod', ns).text, '2026-10-17')
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'dmr'
+            fixture.write_fixture(source, wells=20, permits=False)
+            record = source / 'download-provenance.json'
+            provenance = json.loads(record.read_text(encoding='utf-8'))
+            provenance['archives'][0]['lastModified'] = 'Fri, 06 Nov 2026 09:17:41 GMT'
+            record.write_text(json.dumps(provenance), encoding='utf-8')
+            report = bwp.build(source, Path(tmp) / 'site', 'https://example.github.io/repo/', generator='abc123' * 7)
+            self.assertEqual(report['layerDate'], '2026-11-06')
+            self.assertEqual(report['sourceDate'], '2026-10-17')          # retrieval date still recorded
+            self.assertEqual(report['generator'], 'abc123' * 7)
+            lastmods = {el.text for el in ET.parse(Path(tmp) / 'site' / 'sitemap-wells-1.xml').getroot().findall('s:url/s:lastmod', ns)}
+            self.assertEqual(lastmods, {'2026-11-06'})
+        self.assertEqual(bwp.http_date('not a date'), None)
+        self.assertEqual(bwp.http_date(None), None)
+
     def test_custom_domain_writes_cname(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / 'site'

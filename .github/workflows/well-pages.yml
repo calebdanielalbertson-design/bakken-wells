@@ -2,14 +2,16 @@ name: Well pages
 
 # Builds one static page per North Dakota well from the public NDIC/DMR GIS download and
 # publishes the result to this repository's GitHub Pages site.
-#   - weekly on a schedule (DMR refreshes the wells layer continuously)
+#   - daily on a schedule (DMR regenerates the wells layer every morning, about 09:15 UTC;
+#     a scheduled run that finds the same archives, unit data and generator as the live
+#     site stops after the download instead of redeploying 70,000 unchanged pages)
 #   - on demand from the Actions tab (optionally without deploying)
 #   - after changes to the generator land on main
 #   - on pull requests that touch the generator (build and report only, no deploy)
 
 on:
   schedule:
-    - cron: '17 9 * * 2'
+    - cron: '27 10 * * *'
   workflow_dispatch:
     inputs:
       deploy:
@@ -40,6 +42,8 @@ jobs:
     name: Fetch DMR data and build pages
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    outputs:
+      skip: ${{ steps.changed.outputs.unchanged }}
     steps:
       - uses: actions/checkout@v4
 
@@ -98,17 +102,33 @@ jobs:
             echo "args=" >> "$GITHUB_OUTPUT"
           fi
 
+      # On the daily schedule only: stop here when DMR's archives, the unit data and the generator
+      # are the ones the live site was built from. Pushes and manual runs always build and deploy.
+      - name: Compare with the live site
+        id: changed
+        if: github.event_name == 'schedule'
+        run: |
+          python scripts/wells/changed.py \
+            --live "${{ steps.base.outputs.url }}/build.json" \
+            --provenance work/dmr/download-provenance.json \
+            --generator "$GITHUB_SHA" \
+            $(test -n "${{ steps.data.outputs.args }}" && echo "--data work/data/well-index-data.json.gz") \
+            --github-output "$GITHUB_OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Build the pages
+        if: steps.changed.outputs.unchanged != 'true'
         run: |
           python scripts/wells/build_well_pages.py \
             --source work/dmr \
             --out work/wells-site \
             --base-url "${{ steps.base.outputs.url }}" \
+            --generator "$GITHUB_SHA" \
             --summary work/build-summary.md ${{ steps.data.outputs.args }}
           cat work/build-summary.md >> "$GITHUB_STEP_SUMMARY"
           cat work/build-summary.md
 
       - name: Keep the build report
+        if: steps.changed.outputs.unchanged != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: well-pages-report
@@ -120,9 +140,11 @@ jobs:
       # Same tarball actions/upload-pages-artifact would build, minus its per-file log line
       # (tens of thousands of them), so the column report above stays readable in the log.
       - name: Package for GitHub Pages
+        if: steps.changed.outputs.unchanged != 'true'
         run: tar --dereference --hard-dereference --directory work/wells-site --exclude=.git --exclude=.github -cf "$RUNNER_TEMP/artifact.tar" .
 
       - uses: actions/upload-artifact@v4
+        if: steps.changed.outputs.unchanged != 'true'
         with:
           name: github-pages
           path: ${{ runner.temp }}/artifact.tar
@@ -132,7 +154,7 @@ jobs:
   deploy:
     name: Deploy to GitHub Pages
     needs: build
-    if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.deploy)
+    if: needs.build.outputs.skip != 'true' && github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.deploy)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:

@@ -145,6 +145,17 @@ def format_date(iso):
         return iso
 
 
+def http_date(value):
+    """'Fri, 06 Nov 2026 09:17:41 GMT' -> '2026-11-06'; None when absent or unparseable."""
+    if not value:
+        return None
+    try:
+        from email.utils import parsedate_to_datetime
+        return parsedate_to_datetime(str(value)).date().isoformat()
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
 def format_api(digits):
     if not digits:
         return ''
@@ -652,7 +663,7 @@ def sitemap_urlset(entries):
     return f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{body}</urlset>\n'
 
 
-def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path | None = None, data: Path | None = None):
+def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path | None = None, data: Path | None = None, generator: str | None = None):
     started = datetime.now(timezone.utc)
     wells, report = load_sources(source, limit=limit)
     if not wells:
@@ -664,10 +675,11 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
     base_url = base_url.rstrip('/')
     from urllib.parse import urlsplit
     parts = urlsplit(base_url)
-    source_date = None
+    source_date = layer_date = None
     for archive in report['archives']:
         if archive['kind'] == 'wells':
             source_date = (archive.get('retrievedAt') or '')[:10] or (report.get('provenance') or {}).get('retrievedOn')
+            layer_date = http_date(archive.get('lastModified'))   # the date DMR last regenerated the file
     source_date = source_date or started.date().isoformat()
     ctx = {'base_url': base_url, 'base_path': parts.path.rstrip('/'), 'host': parts.netloc,
            'attribution': 'North Dakota Industrial Commission, Department of Mineral Resources, Oil and Gas Division',
@@ -742,7 +754,9 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
              'statuses': statuses, 'types': types, 'statusGloss': CODES['status'], 'typeGloss': CODES['type'], 'wells': rows}
     write(out / 'wells' / 'index.json', json.dumps(index, ensure_ascii=False, separators=(',', ':')))
 
-    lastmod = source_date
+    # Sitemap lastmod is the date DMR last regenerated the layer, so a daily rebuild of unchanged
+    # data does not tell crawlers that 44,000 pages changed; the retrieval date is the fallback.
+    lastmod = layer_date or source_date
     page_urls = [(f'{base_url}/', lastmod), (f'{base_url}/operators/', lastmod), (f'{base_url}/counties/', lastmod)]
     page_urls += [(f'{base_url}/operators/{s}/', lastmod) for s in op_slugs] + [(f'{base_url}/counties/{s}/', lastmod) for s in co_slugs]
     write(out / 'sitemap-pages.xml', sitemap_urlset(page_urls))
@@ -769,7 +783,8 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
     total_bytes = sum(p.stat().st_size for p in files)
     status_counts = Counter(w['status'] or '—' for w in wells).most_common()
     report.update({
-        'generated': index['generated'], 'baseUrl': base_url, 'basePath': ctx['base_path'], 'sourceDate': source_date,
+        'generated': index['generated'], 'generator': generator, 'baseUrl': base_url, 'basePath': ctx['base_path'],
+        'sourceDate': source_date, 'layerDate': layer_date, 'lastmod': lastmod,
         'wells': len(wells), 'operators': len(operators), 'counties': len(counties),
         'withCoordinates': sum(1 for w in wells if w['lat'] is not None), 'withoutApi': sum(1 for w in wells if not w['api']),
         'statusCounts': status_counts, 'files': len(files), 'bytes': total_bytes, 'wellPageBytes': bytes_written,
@@ -791,7 +806,8 @@ def markdown_summary(report):
     lines = ['## Well pages build', '',
              f'- **{report["wells"]:,} wells**, {report["operators"]:,} operators, {report["counties"]:,} counties → {report["files"]:,} files, {report["bytes"] / 1e6:.1f} MB '
              f'(well pages {report["wellPageBytes"] / 1e6:.1f} MB, search index {report["indexBytes"] / 1e6:.1f} MB) in {report["seconds"]} s',
-             f'- Base URL `{report["baseUrl"]}`; NDIC snapshot {report["sourceDate"]}',
+             f'- Base URL `{report["baseUrl"]}`; NDIC download retrieved {report["sourceDate"]}, DMR file dated {report["layerDate"] or "unknown"} (sitemap lastmod {report["lastmod"]})'
+             + (f'; generator `{report["generator"][:12]}`' if report.get('generator') else ''),
              f'- {report["withCoordinates"]:,} wells have coordinates; {report["withoutApi"]:,} lack an API number (their URLs use the file number)']
     if report.get('data'):
         lines += [f'- **{report["units"]:,} spacing units** ({report["unitsWithMembers"]:,} with surveyed wells inside) and **{report["orders"]:,} orders** from `{report["data"]["file"]}` '
@@ -833,6 +849,7 @@ def main(argv=None) -> int:
     parser.add_argument('--limit', type=int, help='only the first N records (quick local builds)')
     parser.add_argument('--summary', type=Path, help='append a Markdown build summary to this file (GitHub step summary)')
     parser.add_argument('--data', type=Path, help='well-index-data.json.gz from the pipeline: adds spacing-unit and order pages')
+    parser.add_argument('--generator', help='commit the generator runs from, recorded in build.json (GITHUB_SHA)')
     parser.add_argument('--inspect', type=Path, help='print the fields of a layer and exit')
     args = parser.parse_args(argv)
     if args.inspect:
@@ -840,7 +857,7 @@ def main(argv=None) -> int:
     if not args.source or not args.out:
         parser.error('--source and --out are required (or use --inspect)')
     try:
-        report = build(args.source, args.out, args.base_url, limit=args.limit, summary=args.summary, data=args.data)
+        report = build(args.source, args.out, args.base_url, limit=args.limit, summary=args.summary, data=args.data, generator=args.generator)
     except (BuildError, FileNotFoundError, ValueError) as error:
         print(f'error: {error}', file=sys.stderr)
         return 1
