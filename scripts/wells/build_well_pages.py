@@ -37,6 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from wells import production as prod  # noqa: E402
+from wells import townships as tws  # noqa: E402
 from wells import units as dsu  # noqa: E402
 from wells.shapefile import load_layer  # noqa: E402
 
@@ -418,7 +419,8 @@ def format_number(value, unit=''):
 def shell(ctx, *, title, description, path, body, crumbs=None, jsonld=None, robots=None, current=None):
     base = ctx['base_path']
     canonical = ctx['base_url'] + path
-    nav = [('/', 'Find a well', 'search'), ('/operators/', 'Operators', 'operators'), ('/counties/', 'Counties', 'counties')]
+    nav = [('/', 'Find a well', 'search'), ('/operators/', 'Operators', 'operators'), ('/counties/', 'Counties', 'counties'),
+           ('/townships/', 'Townships', 'townships')]
     if ctx.get('has_data'):
         nav += [('/units/', 'Spacing units', 'units'), ('/orders/', 'Orders', 'orders')]
     nav_html = ''.join(f'<a href="{base}{href}"{' aria-current="page"' if key == current else ''}>{label}</a>' for href, label, key in nav)
@@ -479,7 +481,7 @@ def well_page(ctx, w):
                 rendered = esc(value)
             facts.append((LABELS[key], rendered))
     if w['legal']:
-        facts.append(('Legal location', esc(w['legal'])))
+        facts.append(('Legal location', tws.legal_link(ctx, w)))
     if w['footages']:
         facts.append(('Footages', esc(w['footages'])))
     facts.append(('County', f'<a href="{base}/counties/{w["county_slug"]}/">{esc(county_label)}</a>'))
@@ -590,7 +592,7 @@ def operator_page(ctx, op):
                  crumbs=[('Wells', f'{base}/'), ('Operators', f'{base}/operators/'), (op['name'], None)], current='operators')
 
 
-def county_page(ctx, county, operators):
+def county_page(ctx, county, operators, townships=None):
     base = ctx['base_path']
     path = f'/counties/{county["slug"]}/'
     wells = county['wells']
@@ -603,6 +605,7 @@ def county_page(ctx, county, operators):
             f'<p class="lede">{len(wells):,} well records in {esc(county["name"])}, North Dakota.</p>'
             + kpis([(f'{len(wells):,}', 'wells'), (f'{active:,}', 'active'), (f'{len(permitted):,}', 'permitted, not drilled'), (f'{len(county["operators"]):,}', 'operators')])
             + f'<div class="cols"><section class="panel"><h2>Operators</h2><ul class="plain">{ops}</ul></section>'
+            + tws.county_townships_panel(ctx, county['slug'], townships or {})
             + (f'<section class="panel"><h2>Most recently spud</h2>{well_list(ctx, recent, with_operator=True)}</section>' if recent else '')
             + (f'<section class="panel"><h2>Permitted locations not yet drilled</h2>{well_list(ctx, permitted[:200], with_operator=True)}</section>' if permitted else '')
             + '</div><p class="note">Every well in this county has its own page; use the search or an operator page to reach the rest.</p>')
@@ -702,6 +705,8 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
         prod_stats = prod.attach(wells, prod_data)
         ctx['production'] = {'firstMonth': prod_data['months'][0], 'lastMonth': prod_data['months'][-1], 'generated': prod_data.get('generated')}
 
+    townships = tws.attach(wells, units)
+
     out = Path(out)
     if out.exists():
         for child in out.iterdir():
@@ -724,7 +729,11 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
     for op in operators.values():
         write(out / 'operators' / op['slug'] / 'index.html', operator_page(ctx, op))
     for county in counties.values():
-        write(out / 'counties' / county['slug'] / 'index.html', county_page(ctx, county, operators))
+        write(out / 'counties' / county['slug'] / 'index.html', county_page(ctx, county, operators, townships))
+    for tw in townships.values():
+        write(out / 'townships' / tw['slug'] / 'index.html',
+              tws.township_page(ctx, tw, shell=shell, status_text=status_text, well_list=well_list, kpis=kpis, format_date=format_date))
+    write(out / 'townships' / 'index.html', tws.townships_index_page(ctx, townships, shell=shell))
     index_paths = []
     if dsu_data:
         for unit in units:
@@ -763,6 +772,7 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
     wells_archive = next((a['file'] for a in report['archives'] if a['kind'] == 'wells'), 'OGD_Wells.zip')
     index = {'generated': started.replace(microsecond=0).isoformat().replace('+00:00', 'Z'), 'source': {'file': wells_archive, 'date': source_date},
              'fields': ['name', 'api', 'file', 'op', 'county', 'status', 'type', 'lat', 'lon', 'slug'],
+             'townships': [f'{tw["t"]}-{tw["r"]}' for tw in townships.values()],
              'operators': [operators[s]['name'] for s in op_slugs], 'counties': [counties[s]['name'] for s in co_slugs],
              'statuses': statuses, 'types': types, 'statusGloss': CODES['status'], 'typeGloss': CODES['type'], 'wells': rows}
     write(out / 'wells' / 'index.json', json.dumps(index, ensure_ascii=False, separators=(',', ':')))
@@ -774,6 +784,9 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
     page_urls += [(f'{base_url}/operators/{s}/', lastmod) for s in op_slugs] + [(f'{base_url}/counties/{s}/', lastmod) for s in co_slugs]
     write(out / 'sitemap-pages.xml', sitemap_urlset(page_urls))
     sitemaps = [f'{base_url}/sitemap-pages.xml']
+    township_urls = [(f'{base_url}/townships/', lastmod)] + [(f'{base_url}/townships/{tw["slug"]}/', lastmod) for tw in townships.values()]
+    write(out / 'sitemap-townships.xml', sitemap_urlset(township_urls))
+    sitemaps.append(f'{base_url}/sitemap-townships.xml')
     well_urls = [(f'{base_url}/wells/{w["slug"]}/', lastmod) for w in sorted(wells, key=lambda w: w['slug'])]
     for n in range(0, len(well_urls), WELLS_PER_SITEMAP):
         name = f'sitemap-wells-{n // WELLS_PER_SITEMAP + 1}.xml'
@@ -808,6 +821,8 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
         'data': ({'file': Path(data).name, 'generated': dsu_data.get('generated'), 'counts': dsu_data.get('counts'), 'sources': dsu_data.get('sources')}
                  if dsu_data else None),
         'wellsWithProduction': prod_stats.get('wellsWithProduction', 0),
+        'townships': len(townships), 'sectionsWithWells': sum(1 for tw in townships.values() for s in tw['sections'].values() if s['wells']),
+        'wellsWithTownship': sum(1 for w in wells if w.get('township')),
         'production': ({'file': Path(production).name, 'generated': prod_data.get('generated'), 'firstMonth': prod_data['months'][0],
                         'lastMonth': prod_data['months'][-1], 'months': len(prod_data['months']), 'source': (prod_data.get('source') or {}).get('url'),
                         **prod_stats} if prod_data else None),
@@ -838,6 +853,7 @@ def markdown_summary(report):
                   f'({p["months"]} months, {p["feedWells"]:,} wells in the feed, {p["matchedByApi"]:,} matched by API, {p["feedWellsNotInLayer"]:,} not in the wells layer)']
     else:
         lines += ['- No production feed (`--production` not given): no production panels']
+    lines += [f'- **{report["townships"]:,} townships** with {report["sectionsWithWells"]:,} sections holding wells; {report["wellsWithTownship"]:,} wells have a parsed legal location']
     lines += ['']
     for archive in report['archives']:
         lines += [f'### {archive["file"]} ({archive["kind"]})', '',

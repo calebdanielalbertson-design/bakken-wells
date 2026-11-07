@@ -198,7 +198,8 @@ class BuildTests(unittest.TestCase):
         ns = {'s': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
         index = ET.parse(self.out / 'sitemap.xml').getroot()
         maps = [el.text for el in index.findall('s:sitemap/s:loc', ns)]
-        self.assertEqual(maps, ['https://example.github.io/repo/sitemap-pages.xml', 'https://example.github.io/repo/sitemap-wells-1.xml'])
+        self.assertEqual(maps, ['https://example.github.io/repo/sitemap-pages.xml', 'https://example.github.io/repo/sitemap-townships.xml',
+                                'https://example.github.io/repo/sitemap-wells-1.xml'])
         wells = ET.parse(self.out / 'sitemap-wells-1.xml').getroot().findall('s:url/s:loc', ns)
         self.assertEqual(len(wells), 121)
         self.assertTrue(all(el.text.startswith('https://example.github.io/repo/wells/') for el in wells))

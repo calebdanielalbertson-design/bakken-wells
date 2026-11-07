@@ -1,6 +1,6 @@
 // Node checks for the fuzzy well search shipped with the well pages (scripts/wells/templates/search.js).
 import assert from 'node:assert/strict';
-import {createSearch, normalize, digits, formatApi, dice, bigrams, FIELDS} from '../scripts/wells/templates/search.js';
+import {createSearch, normalize, digits, formatApi, dice, bigrams, townshipQuery, FIELDS} from '../scripts/wells/templates/search.js';
 
 const index = {
   operators: ['CONTINENTAL RESOURCES, INC.', 'HESS BAKKEN INVESTMENTS II, LLC', 'KRAKEN OPERATING, LLC'],
@@ -57,5 +57,18 @@ const hanson = engine.records.find(r => r.file === 31234);
 assert.equal(hanson.status, 'PA');
 assert.equal(hanson.type, 'OG');
 assert.equal(hanson.countyName, 'Williams');
+
+// Township shortcuts: several spellings, optional section, never from plain digits or unknown townships.
+const townships = ['153-91', '152-104'];
+assert.deepEqual(townshipQuery('153-91', townships), {township: 153, range: 91, section: null, slug: '153n-91w'});
+assert.deepEqual(townshipQuery('T153N R91W', townships), {township: 153, range: 91, section: null, slug: '153n-91w'});
+assert.deepEqual(townshipQuery('153n 91w', townships), {township: 153, range: 91, section: null, slug: '153n-91w'});
+assert.deepEqual(townshipQuery('sec 28 t153n r91w', townships), {township: 153, range: 91, section: 28, slug: '153n-91w'});
+assert.deepEqual(townshipQuery('Section 10, 152-104', townships), {township: 152, range: 104, section: 10, slug: '152n-104w'});
+assert.equal(townshipQuery('15391', townships), null);          // a file number, not a township
+assert.equal(townshipQuery('33-053-04567', townships), null);   // an API
+assert.equal(townshipQuery('154-96', townships), null);         // not in the index
+assert.equal(townshipQuery('hawkinson 1-21h', townships), null);
+assert.equal(townshipQuery('153-91 sec 40', townships).section, null);
 
 console.log('well search: all checks passed');
