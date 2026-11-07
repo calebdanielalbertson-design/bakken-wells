@@ -10,8 +10,13 @@ archive and download-provenance.json), or a single .zip. Output is a complete st
     /wells/<api>/          one page per well, e.g. /wells/33-053-04567/
     /operators/<slug>/     every operator, wells grouped by county
     /counties/<slug>/      every county: operators, recent spuds, permitted locations
-    sitemap.xml            sitemap index -> sitemap-pages.xml + sitemap-wells-N.xml
+    /units/<id>/           one page per spacing unit (with --data; see wells/units.py)
+    /orders/<no>/          one page per NDIC order matched to a unit (with --data)
+    sitemap.xml            sitemap index -> sitemap-pages.xml + sitemap-wells-N.xml (+ units, orders)
     build.json             counts, field mapping, warnings (also appended to --summary as Markdown)
+
+--data takes the pipeline's well-index-data.json.gz (spacing-unit footprints, membership and
+order history); without it the well pages simply have no "Spacing units" panel.
 
 No third-party packages. Every value from the DBF is treated as data and HTML-escaped.
 """
@@ -30,6 +35,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from wells import units as dsu  # noqa: E402
 from wells.shapefile import load_layer  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -400,6 +406,8 @@ def shell(ctx, *, title, description, path, body, crumbs=None, jsonld=None, robo
     base = ctx['base_path']
     canonical = ctx['base_url'] + path
     nav = [('/', 'Find a well', 'search'), ('/operators/', 'Operators', 'operators'), ('/counties/', 'Counties', 'counties')]
+    if ctx.get('has_data'):
+        nav += [('/units/', 'Spacing units', 'units'), ('/orders/', 'Orders', 'orders')]
     nav_html = ''.join(f'<a href="{base}{href}"{' aria-current="page"' if key == current else ''}>{label}</a>' for href, label, key in nav)
     crumb_html = ''
     if crumbs:
@@ -511,7 +519,7 @@ def well_page(ctx, w):
         f'<div class="badges">{"".join(badges)}</div>'
         f'<div class="grid"><section class="panel"><h2>Well facts</h2><dl class="facts">{facts_html}</dl></section>'
         f'<section class="panel"><h2>Location &amp; navigation</h2>{location_html}{viewer_html}</section></div>'
-        f'{nearby_html}{attributes_html}'
+        f'{dsu.well_units_panel(ctx, w)}{nearby_html}{attributes_html}'
         f'<script src="{base}/assets/page.js" defer></script>'
     )
     jsonld = [{
@@ -611,7 +619,11 @@ def index_pages(ctx, operators, counties, totals):
         + kpis([(f'{totals["wells"]:,}', 'wells'), (f'{totals["operators"]:,}', 'operators'), (f'{totals["counties"]:,}', 'counties'), (esc(ctx['source_date']), 'NDIC snapshot')])
         + f'<div class="cols"><section class="panel"><h2>Largest operators</h2><ul class="plain">{top_ops}</ul><p class="note"><a href="{base}/operators/">All operators</a></p></section>'
         f'<section class="panel"><h2>Counties</h2><ul class="plain">{co_items}</ul></section></div>'
-        '<section class="panel" style="margin-top:16px"><h2>About this index</h2>'
+        + (f'<section class="panel" style="margin-top:16px"><h2>Spacing units and orders</h2>'
+           f'<p>{totals["units"]:,} <a href="{base}/units/">drilling spacing units</a> have a page with the unit footprint, the surveyed wells inside it and the NDIC hearing orders that created or changed it; '
+           f'{totals["orders"]:,} <a href="{base}/orders/">orders</a> have a page listing the units they touched. Order facts are machine-extracted from the signed orders and not human-reviewed.</p></section>'
+           if ctx.get('has_data') else '')
+        + '<section class="panel" style="margin-top:16px"><h2>About this index</h2>'
         '<p>The pages are rebuilt automatically from the North Dakota Department of Mineral Resources public GIS download of well records, so they track NDIC\'s own updates, including newly permitted locations before they are drilled. '
         f'Each page carries the published surface location with one-tap directions, and links into the <a href="{MAIN_SITE}/viewer/?dataset=full">regional 3D viewer</a> for wells with surveyed paths.</p>'
         f'<p class="note">Part of <a href="{MAIN_SITE}/">Bakken Subsurface</a>. Not affiliated with NDIC. Read the <a href="{MAIN_SITE}/methodology/">methodology</a>.</p></section>'
@@ -640,7 +652,7 @@ def sitemap_urlset(entries):
     return f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{body}</urlset>\n'
 
 
-def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path | None = None, viewer_wells: Path | None = None):
+def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path | None = None, data: Path | None = None):
     started = datetime.now(timezone.utc)
     wells, report = load_sources(source, limit=limit)
     if not wells:
@@ -659,7 +671,12 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
     source_date = source_date or started.date().isoformat()
     ctx = {'base_url': base_url, 'base_path': parts.path.rstrip('/'), 'host': parts.netloc,
            'attribution': 'North Dakota Industrial Commission, Department of Mineral Resources, Oil and Gas Division',
-           'source_date': source_date, 'built': started.date().isoformat()}
+           'source_date': source_date, 'built': started.date().isoformat(), 'has_data': False}
+    units, orders, dsu_stats, dsu_data = [], [], {}, None
+    if data:
+        dsu_data = dsu.load_data(data)
+        units, orders, dsu_stats = dsu.attach(wells, dsu_data)
+        ctx['has_data'] = True
 
     out = Path(out)
     if out.exists():
@@ -683,7 +700,19 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
         write(out / 'operators' / op['slug'] / 'index.html', operator_page(ctx, op))
     for county in counties.values():
         write(out / 'counties' / county['slug'] / 'index.html', county_page(ctx, county, operators))
-    totals = {'wells': len(wells), 'operators': len(operators), 'counties': len(counties)}
+    index_paths = []
+    if dsu_data:
+        for unit in units:
+            write(out / 'units' / unit['slug'] / 'index.html', dsu.unit_page(ctx, unit, shell=shell, status_text=status_text))
+        for order in orders:
+            write(out / 'orders' / order['slug'] / 'index.html', dsu.order_page(ctx, order, shell=shell))
+        for path, page in dsu.units_index_pages(ctx, units, dsu_data['counts'], shell=shell).items():
+            write(out / path.strip('/') / 'index.html', page)
+            index_paths.append(path)
+        for path, page in dsu.orders_index_pages(ctx, orders, shell=shell).items():
+            write(out / path.strip('/') / 'index.html', page)
+            index_paths.append(path)
+    totals = {'wells': len(wells), 'operators': len(operators), 'counties': len(counties), 'units': len(units), 'orders': len(orders)}
     search_html, operators_html, counties_html, not_found = index_pages(ctx, operators, counties, totals)
     write(out / 'index.html', search_html)
     write(out / 'wells' / 'index.html', search_html)
@@ -723,6 +752,15 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
         name = f'sitemap-wells-{n // WELLS_PER_SITEMAP + 1}.xml'
         write(out / name, sitemap_urlset(well_urls[n:n + WELLS_PER_SITEMAP]))
         sitemaps.append(f'{base_url}/{name}')
+    if dsu_data:
+        data_mod = (dsu_data.get('generated') or '')[:10] or lastmod
+        unit_urls = [(f'{base_url}{path}', data_mod) for path in index_paths]
+        unit_urls += [(f'{base_url}/units/{u["slug"]}/', data_mod) for u in sorted(units, key=lambda u: u['slug'])]
+        unit_urls += [(f'{base_url}/orders/{o["slug"]}/', data_mod) for o in sorted(orders, key=lambda o: o['slug'])]
+        for n in range(0, len(unit_urls), WELLS_PER_SITEMAP):
+            name = f'sitemap-units-{n // WELLS_PER_SITEMAP + 1}.xml'
+            write(out / name, sitemap_urlset(unit_urls[n:n + WELLS_PER_SITEMAP]))
+            sitemaps.append(f'{base_url}/{name}')
     write(out / 'sitemap.xml', '<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
           + ''.join(f'<sitemap><loc>{esc(s)}</loc><lastmod>{lastmod}</lastmod></sitemap>' for s in sitemaps) + '</sitemapindex>\n')
     write(out / 'robots.txt', f'User-agent: *\nAllow: /\n\nSitemap: {base_url}/sitemap.xml\n')
@@ -736,6 +774,10 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
         'withCoordinates': sum(1 for w in wells if w['lat'] is not None), 'withoutApi': sum(1 for w in wells if not w['api']),
         'statusCounts': status_counts, 'files': len(files), 'bytes': total_bytes, 'wellPageBytes': bytes_written,
         'indexBytes': (out / 'wells' / 'index.json').stat().st_size, 'sitemaps': len(sitemaps),
+        'units': len(units), 'orders': len(orders), 'wellsWithUnits': sum(1 for w in wells if w.get('units')),
+        'unitsWithMembers': dsu_stats.get('unitsWithMembers', 0), 'unitMembersNotInLayer': dsu_stats.get('membersNotInLayer', 0),
+        'data': ({'file': Path(data).name, 'generated': dsu_data.get('generated'), 'counts': dsu_data.get('counts'), 'sources': dsu_data.get('sources')}
+                 if dsu_data else None),
         'seconds': round((datetime.now(timezone.utc) - started).total_seconds(), 1),
     })
     write(out / 'build.json', json.dumps(report, indent=2, default=str) + '\n')
@@ -750,7 +792,13 @@ def markdown_summary(report):
              f'- **{report["wells"]:,} wells**, {report["operators"]:,} operators, {report["counties"]:,} counties → {report["files"]:,} files, {report["bytes"] / 1e6:.1f} MB '
              f'(well pages {report["wellPageBytes"] / 1e6:.1f} MB, search index {report["indexBytes"] / 1e6:.1f} MB) in {report["seconds"]} s',
              f'- Base URL `{report["baseUrl"]}`; NDIC snapshot {report["sourceDate"]}',
-             f'- {report["withCoordinates"]:,} wells have coordinates; {report["withoutApi"]:,} lack an API number (their URLs use the file number)', '']
+             f'- {report["withCoordinates"]:,} wells have coordinates; {report["withoutApi"]:,} lack an API number (their URLs use the file number)']
+    if report.get('data'):
+        lines += [f'- **{report["units"]:,} spacing units** ({report["unitsWithMembers"]:,} with surveyed wells inside) and **{report["orders"]:,} orders** from `{report["data"]["file"]}` '
+                  f'generated {report["data"]["generated"]}; {report["wellsWithUnits"]:,} wells sit in a unit; {report["unitMembersNotInLayer"]:,} unit members were not in the wells layer']
+    else:
+        lines += ['- No spacing-unit data (`--data` not given): no unit or order pages']
+    lines += ['']
     for archive in report['archives']:
         lines += [f'### {archive["file"]} ({archive["kind"]})', '',
                   f'- {archive["records"]:,} records ({archive["deleted"]} deleted), shape type {archive["shapeType"]}, {"geographic" if archive["geographic"] else "projected"} coordinates',
@@ -784,6 +832,7 @@ def main(argv=None) -> int:
     parser.add_argument('--base-url', default='https://wells.bakkensubsurface.com', help='public origin (and path prefix) the pages will be served from')
     parser.add_argument('--limit', type=int, help='only the first N records (quick local builds)')
     parser.add_argument('--summary', type=Path, help='append a Markdown build summary to this file (GitHub step summary)')
+    parser.add_argument('--data', type=Path, help='well-index-data.json.gz from the pipeline: adds spacing-unit and order pages')
     parser.add_argument('--inspect', type=Path, help='print the fields of a layer and exit')
     args = parser.parse_args(argv)
     if args.inspect:
@@ -791,11 +840,11 @@ def main(argv=None) -> int:
     if not args.source or not args.out:
         parser.error('--source and --out are required (or use --inspect)')
     try:
-        report = build(args.source, args.out, args.base_url, limit=args.limit, summary=args.summary)
+        report = build(args.source, args.out, args.base_url, limit=args.limit, summary=args.summary, data=args.data)
     except (BuildError, FileNotFoundError, ValueError) as error:
         print(f'error: {error}', file=sys.stderr)
         return 1
-    print(f'{report["wells"]:,} wells -> {report["files"]:,} files, {report["bytes"] / 1e6:.1f} MB at {args.out} (base {report["baseUrl"]}) in {report["seconds"]} s')
+    print(f'{report["wells"]:,} wells, {report["units"]:,} units, {report["orders"]:,} orders -> {report["files"]:,} files, {report["bytes"] / 1e6:.1f} MB at {args.out} (base {report["baseUrl"]}) in {report["seconds"]} s')
     for warning in report['warnings']:
         print(f'warning: {warning}')
     return 0

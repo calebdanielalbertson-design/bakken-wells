@@ -148,6 +148,9 @@ class BuildTests(unittest.TestCase):
                      'assets/search.js', 'assets/page.js', '.nojekyll', 'build.json'):
             self.assertTrue((self.out / name).exists(), name)
         self.assertFalse((self.out / 'CNAME').exists())            # github.io host with a path: no CNAME
+        self.assertFalse((self.out / 'units').exists())            # no --data: no unit or order pages, no nav entry
+        self.assertNotIn('>Spacing units</a>', (self.out / 'index.html').read_text(encoding='utf-8'))
+        self.assertIn('No spacing-unit data', self.summary.read_text(encoding='utf-8'))
 
     def test_well_page_content_is_escaped_and_complete(self):
         hostile = next(p for p in (self.out / 'wells').glob('*/index.html') if 'alert(1)' in p.read_text(encoding='utf-8'))

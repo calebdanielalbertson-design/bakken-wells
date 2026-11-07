@@ -11,7 +11,11 @@ operates it, where is it, how do I get there.
 | `/wells/33-053-04567/` | One well: operator, status, type, spud, depth, legal location, map directions, nearby wells, every published attribute, links into the 3D viewers. Wells without an API use `/wells/file-<fileno>/` |
 | `/operators/<slug>/` | Every operator name NDIC publishes, wells grouped by county |
 | `/counties/<slug>/` | Operators, most recent spuds and permitted-not-drilled locations in a county |
-| `/sitemap.xml` | Sitemap index: `sitemap-pages.xml` and `sitemap-wells-N.xml` (10,000 URLs each) |
+| `/units/<id>/` | One drilling spacing unit: footprint map with its well heads, acreage, formation, land described, the surveyed wells inside it, the NDIC orders that created or changed it, the latest stated well allowance and headroom, overlapping units; links into the 3D viewer and the cases-and-orders map |
+| `/units/`, `/units/by-county/<slug>/` | Units by county (the county of most of a unit's wells) |
+| `/orders/<no>/` | One NDIC hearing order: date, case, applicant, pool, and what it did to each unit it touched |
+| `/orders/`, `/orders/by-year/<year>/` | Orders by the year they were signed |
+| `/sitemap.xml` | Sitemap index: `sitemap-pages.xml`, `sitemap-wells-N.xml` and `sitemap-units-N.xml` (10,000 URLs each) |
 | `/wells/index.json` | The compact search index |
 | `/build.json` | Counts, field mapping and warnings for the last build |
 
@@ -34,7 +38,8 @@ is a public website.
 scripts/wells/fetch_dmr.py        downloads the archives in scripts/wells/sources.json (needs network)
 scripts/wells/shapefile.py        standard-library reader for the DBF and SHP point layer inside each zip
 scripts/wells/build_well_pages.py turns the layer into the static site described above
-scripts/wells/fixture.py          synthetic OGD_Wells-shaped archives for tests and previews
+scripts/wells/units.py            spacing-unit and order pages from the pipeline's data file (--data)
+scripts/wells/fixture.py          synthetic OGD_Wells-shaped archives and a small data file for tests and previews
 scripts/wells/codes.json          plain-language readings of NDIC status and well-type codes (edit freely)
 scripts/wells/templates/          well.css, search.js (fuzzy search), page.js
 .github/workflows/well-pages.yml  tests, weekly build and deploy to GitHub Pages
@@ -67,6 +72,38 @@ Coordinates come from the DBF latitude and longitude columns when present and pl
 Dakota, otherwise from the point geometry when the `.prj` is geographic (NAD83). Nearby wells are
 the eight closest published well heads within three miles.
 
+## Spacing units and orders
+
+The unit and order pages are built from one file, `well-index-data.json.gz`, that the project's
+private pipeline prepares (`explorer/prepare_well_index_data.py` there) from:
+
+- the DMR drilling-spacing-unit footprints (public GIS download), simplified for a small map;
+- which surveyed Bakken-system laterals have at least 660 ft of plan-view length inside each
+  footprint (geometric membership, not a legal assignment; a lateral can cross several units);
+- the order history of each footprint: order and case numbers, dates, applicants, pools, the land
+  described and the well counts allowed, extracted from the operative text of signed NDIC orders by
+  the pipeline's order tooling. These facts are machine-extracted and not human-reviewed, and every
+  page says so. No order document is copied; each order page points to the NDIC Oil and Gas
+  Division by order number.
+
+Nothing from the viewer's estimated depth zones or the saved inventory model is in the file.
+
+The workflow downloads the file from this repository's `well-index-data` release
+(`gh release download well-index-data --pattern well-index-data.json.gz`) and passes it to the
+builder with `--data`. If the asset is missing the build still succeeds, without unit or order
+pages. To publish a new data snapshot from the pipeline checkout:
+
+```
+python explorer/prepare_well_index_data.py --out work/well-index-data.json.gz
+gh release upload well-index-data work/well-index-data.json.gz --clobber --repo calebdanielalbertson-design/bakken-wells
+gh release edit well-index-data --notes "Data generated $(date -u +%F) from the DSU snapshot of ..." --repo calebdanielalbertson-design/bakken-wells
+gh workflow run well-pages.yml --repo calebdanielalbertson-design/bakken-wells
+```
+
+The first time, create the release instead: `gh release create well-index-data work/well-index-data.json.gz --title "Well index data" --notes "..."`.
+The file records its own generation time and the hashes of its inputs; `build.json` repeats them
+under `data`, and the unit and order sitemaps use the generation date as `lastmod`.
+
 ## Running locally
 
 ```
@@ -77,10 +114,13 @@ python -m http.server 8765 --directory work/wells-site
 
 With network access, replace the first line with `python scripts/wells/fetch_dmr.py --out work/dmr`
 and point `--source` at `work/dmr`. `--limit 2000` builds a quick subset. `--inspect work/dmr/OGD_Wells.zip`
-prints the layer's columns with sample values and how each was mapped.
+prints the layer's columns with sample values and how each was mapped. The fixture folder also
+holds a four-unit `well-index-data.json.gz`; pass it (or the real file from the release) with
+`--data` to build the unit and order pages too.
 
-Tests: `python -m unittest discover -s scripts/tests` (reader, builder, fixtures, nearby wells)
-and `node tests/test_well_search.mjs` (fuzzy search). Python 3.12 and Node 22; no packages.
+Tests: `python -m unittest discover -s scripts/tests` (reader, builder, fixtures, nearby wells,
+units and orders) and `node tests/test_well_search.mjs` (fuzzy search). Python 3.12 and Node 22;
+no packages.
 
 ## Custom domain
 
@@ -101,10 +141,13 @@ wells". The 3D page has no URL state yet, so its link is generic.
 
 ## Known limits and what comes next
 
-- Production, spacing units, hearing orders and survey summaries are not on the pages yet. They
-  are the next step: the project's prepared datasets carry monthly production for 22,000 wells,
-  spacing-unit membership and order history, and the workflow can add them once it is given a
-  read-only key to the data bucket.
+- Production and survey summaries are not on the pages yet; the project's prepared datasets carry
+  monthly production for 22,000 wells and they are the next addition, once the data-rights review
+  of the production sources is settled.
+- Unit membership covers surveyed Bakken-system horizontals only, so vertical wells and wells
+  without a survey do not appear inside any unit. Order history covers the orders in the research
+  snapshot whose land description could be matched to a published footprint, not every order the
+  Commission has signed, and the data file is refreshed by hand from the pipeline, not weekly.
 - Status and type glosses cover the common NDIC codes only.
 - Operator pages group by the operator string as published, so spelling variants of one company
   are separate pages until a grouping table is added.
