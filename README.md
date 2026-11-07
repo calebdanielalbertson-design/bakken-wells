@@ -39,17 +39,28 @@ scripts/wells/fetch_dmr.py        downloads the archives in scripts/wells/source
 scripts/wells/shapefile.py        standard-library reader for the DBF and SHP point layer inside each zip
 scripts/wells/build_well_pages.py turns the layer into the static site described above
 scripts/wells/units.py            spacing-unit and order pages from the pipeline's data file (--data)
+scripts/wells/changed.py          tells a scheduled run whether anything changed since the live build
 scripts/wells/fixture.py          synthetic OGD_Wells-shaped archives and a small data file for tests and previews
 scripts/wells/codes.json          plain-language readings of NDIC status and well-type codes (edit freely)
 scripts/wells/templates/          well.css, search.js (fuzzy search), page.js
 .github/workflows/well-pages.yml  tests, weekly build and deploy to GitHub Pages
 ```
 
-The workflow runs every Tuesday, on demand from the Actions tab, and whenever the generator
-changes on `main`. Each run tests the code, lists the archives linked from the DMR download page,
-downloads `OGD_Wells.zip` (and the optional permit-status layer), builds into `work/wells-site/`,
-writes a Markdown report to the job summary (record counts, which DBF columns were recognised,
-status codes seen, warnings) and deploys. Pull requests build and report without deploying.
+The workflow runs every day at 10:27 UTC (DMR regenerates the wells layer each morning at about
+09:15 UTC), on demand from the Actions tab, and whenever the generator changes on `main`. Each
+run tests the code, lists the archives linked from the DMR download page, downloads
+`OGD_Wells.zip` (and the optional permit-status layer), fetches the spacing-unit data, builds
+into `work/wells-site/`, writes a Markdown report to the job summary (record counts, which DBF
+columns were recognised, status codes seen, warnings) and deploys. Pull requests build and
+report without deploying.
+
+A scheduled run first compares what it downloaded with the live site's `build.json`
+(`scripts/wells/changed.py`): the SHA-256 of each DMR archive, the generation time of the unit
+data and the generator commit. When all three match, the run stops without building or
+deploying, so a day on which DMR published nothing new leaves the site, and its sitemap dates,
+untouched. Anything it cannot compare counts as a change. Sitemap `lastmod` is the date DMR
+last regenerated the layer (the archive's `Last-Modified`), not the day the pages were built;
+`build.json` records both, plus the generator commit.
 
 The November 2026 layer holds 44,048 wells across 1,591 operator names and 53 counties, every one
 with coordinates and an API number. Columns and how they are used:
@@ -151,7 +162,8 @@ wells". The 3D page has no URL state yet, so its link is generic.
 - Status and type glosses cover the common NDIC codes only.
 - Operator pages group by the operator string as published, so spelling variants of one company
   are separate pages until a grouping table is added.
-- The workflow republishes weekly even when nothing changed.
+- New wells appear within a day of DMR adding them to the wells layer; the unit and order data
+  refreshes only when a new snapshot is published from the pipeline.
 - About 400 MB of HTML for 44,000 wells (8 to 9 KB a page, about 30 MB compressed in the Pages
   artifact), within GitHub Pages limits.
 
