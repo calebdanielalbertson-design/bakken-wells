@@ -177,17 +177,22 @@ def unit_line(ctx, unit, *, sections=None):
 
 
 def township_orders(tw):
-    """(date, order, verb, unit) for every order event on the township's units, newest first."""
-    seen = {}
-    for unit in tw['units'].values():
+    """One row per order that touched the township's units: (date, order, verbs, units), newest first."""
+    by_order = {}
+    for unit in sorted(tw['units'].values(), key=lambda u: (-(u.get('acres') or 0), u['id'])):
         for event in unit.get('events') or []:
             order = event.get('order')
             if not order:
                 continue
-            key = (order, unit['id'])
-            if key not in seen:
-                seen[key] = (event.get('date') or '', order, event.get('verb') or event.get('event') or '', unit)
-    return sorted(seen.values(), key=lambda row: (row[0], row[1]), reverse=True)
+            row = by_order.setdefault(order, {'date': event.get('date') or '', 'order': order, 'verbs': [], 'units': []})
+            verb = event.get('verb') or event.get('event') or ''
+            if verb and verb not in row['verbs']:
+                row['verbs'].append(verb)
+            if unit not in row['units']:
+                row['units'].append(unit)
+            if (event.get('date') or '') > row['date']:
+                row['date'] = event['date']
+    return sorted(by_order.values(), key=lambda row: (row['date'], row['order']), reverse=True)
 
 
 def township_page(ctx, tw, *, shell, status_text, well_list, kpis, format_date):
@@ -219,10 +224,14 @@ def township_page(ctx, tw, *, shell, status_text, well_list, kpis, format_date):
     orders = township_orders(tw)
     orders_html = ''
     if orders:
-        items = ''.join(f'<li><time datetime="{esc(date)}">{esc(format_date(date) if date else "undated")}</time> <a href="{base}/orders/{esc(order)}/">Order {esc(order)}</a> '
-                        f'<span class="what">{esc(verb)}</span> <a class="land" href="{base}/units/{esc(unit["id"])}/">{esc(unit.get("where") or unit.get("label") or unit["id"])}</a></li>'
-                        for date, order, verb, unit in orders[:ORDERS_SHOWN])
-        more = f'<p class="note">{len(orders) - ORDERS_SHOWN:,} earlier order events are on the unit pages.</p>' if len(orders) > ORDERS_SHOWN else ''
+        items = ''
+        for row in orders[:ORDERS_SHOWN]:
+            first = row['units'][0]
+            units_text = (f'<a class="land" href="{base}/units/{esc(first["id"])}/">{esc(first.get("where") or first.get("label") or first["id"])}</a>'
+                          + (f' and {len(row["units"]) - 1} more units in this township' if len(row['units']) > 1 else ''))
+            items += (f'<li><time datetime="{esc(row["date"])}">{esc(format_date(row["date"]) if row["date"] else "undated")}</time> '
+                      f'<a href="{base}/orders/{esc(row["order"])}/">Order {esc(row["order"])}</a> <span class="what">{esc(", ".join(row["verbs"]))}</span> {units_text}</li>')
+        more = f'<p class="note">{len(orders) - ORDERS_SHOWN:,} earlier orders are on the unit pages.</p>' if len(orders) > ORDERS_SHOWN else ''
         orders_html = f'<section class="panel"><h2>Orders</h2><ol class="timeline orders">{items}</ol>{more}<p class="note">Facts extracted from signed NDIC orders by the pipeline, machine-extracted and not human-reviewed.</p></section>'
     ops_html = ''.join(f'<li><a href="{base}/operators/{slugify(name)}/">{esc(name)}</a> <small>{count:,}</small></li>' for name, count in tw['operators'].most_common())
     body = (f'<p class="eyebrow">Township · {county_link}</p><h1>{esc(tw["title"])}</h1>'
