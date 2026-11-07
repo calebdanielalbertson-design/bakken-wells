@@ -703,7 +703,8 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
     if production:
         prod_data = prod.load_production(production)
         prod_stats = prod.attach(wells, prod_data)
-        ctx['production'] = {'firstMonth': prod_data['months'][0], 'lastMonth': prod_data['months'][-1], 'generated': prod_data.get('generated')}
+        ctx['production'] = {'firstMonth': prod_data['months'][0], 'lastMonth': prod_data['months'][-1], 'generated': prod_data.get('generated'),
+                             'pdf': (prod_data.get('coverage') or {}).get('pdf')}
 
     townships = tws.attach(wells, units)
 
@@ -825,6 +826,8 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
         'wellsWithTownship': sum(1 for w in wells if w.get('township')),
         'production': ({'file': Path(production).name, 'generated': prod_data.get('generated'), 'firstMonth': prod_data['months'][0],
                         'lastMonth': prod_data['months'][-1], 'months': len(prod_data['months']), 'source': (prod_data.get('source') or {}).get('url'),
+                        'pdfFirstMonth': (prod.pdf_span(ctx['production']) or (None, None))[0],
+                        'pdfLastMonth': (prod.pdf_span(ctx['production']) or (None, None))[1],
                         **prod_stats} if prod_data else None),
         'seconds': round((datetime.now(timezone.utc) - started).total_seconds(), 1),
     })
@@ -849,8 +852,11 @@ def markdown_summary(report):
         lines += ['- No spacing-unit data (`--data` not given): no unit or order pages']
     if report.get('production'):
         p = report['production']
+        pdf_text = (f'; months {p["pdfFirstMonth"]} to {p["pdfLastMonth"]} read from the PDF reports, {p.get("unitPoolWells", 0):,} wells '
+                    'reported only inside a unit total in those years' if p.get('pdfLastMonth') else '')
         lines += [f'- **Production** for {report["wellsWithProduction"]:,} wells from `{p["file"]}` generated {p["generated"]}: {p["firstMonth"]} to {p["lastMonth"]} '
-                  f'({p["months"]} months, {p["feedWells"]:,} wells in the feed, {p["matchedByApi"]:,} matched by API, {p["feedWellsNotInLayer"]:,} not in the wells layer)']
+                  f'({p["months"]} months, {p["feedWells"]:,} wells in the feed, {p["matchedByApi"]:,} matched by API, {p["feedWellsNotInLayer"]:,} not in the wells layer'
+                  f'{pdf_text})']
     else:
         lines += ['- No production feed (`--production` not given): no production panels']
     lines += [f'- **{report["townships"]:,} townships** with {report["sectionsWithWells"]:,} sections holding wells; {report["wellsWithTownship"]:,} wells have a parsed legal location']

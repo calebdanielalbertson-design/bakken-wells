@@ -178,14 +178,15 @@ def make_data(rows):
 
 
 # Which fixture rows the production feed covers (rows 3, 4 and 7 are the duplicate-API, no-API and deleted edge cases).
-PRODUCTION_CASES = {'full': 0, 'confidential': 1, 'short': 2, 'byApi': 10, 'none': 9}
+PRODUCTION_CASES = {'full': 0, 'confidential': 1, 'short': 2, 'unitPool': 8, 'byApi': 10, 'none': 9}
 
 
 def make_production(rows):
     """A small well-production feed (what the pipeline's prepare_free_production.py writes), January to
-    December 2024: the first well has a full year with one unknown month; the second is confidential (all
-    unknown); the third reported three months; one entry belongs to a file the layer lacks; one entry has an
-    unknown file number but the fifth well's API."""
+    December 2024, the first six months "read from PDF reports": the first well has a full year with one unknown
+    month; the second is confidential (all unknown); the third reported three months; the ninth was reported only
+    inside a unit total in the PDF months and starts in July; one entry belongs to a file the layer lacks; one
+    entry has an unknown file number but the fifth well's API."""
     months = [f'2024-{m:02d}' for m in range(1, 13)]
 
     def entry(api, first, last, oil, pools=('BAKKEN',)):
@@ -199,13 +200,16 @@ def make_production(rows):
         str(rows[c['full']]['fileno']): entry(rows[c['full']]['api'], '2024-01', '2024-12', [1200, 980, 870, None, 760, 700, 650, 640, 0, 610, 590, 575]),
         str(rows[c['confidential']]['fileno']): entry(rows[c['confidential']]['api'], '2024-03', '2024-05', [None, None, None]),
         str(rows[c['short']]['fileno']): entry(rows[c['short']]['api'], '2024-10', '2024-12', [300, 280, 260], ('MADISON', 'TYLER')),
+        str(rows[c['unitPool']]['fileno']): dict(entry(rows[c['unitPool']]['api'], '2024-07', '2024-12', [100, 90, 80, 70, 60, 50]), unitPool=True),
         '999999': entry('33999999990000', '2024-01', '2024-02', [10, 10]),
         '888888': entry(rows[c['byApi']]['api'], '2024-06', '2024-07', [50, 40]),   # unknown file number, known API
     }
     return {'version': 1, 'kind': 'well-production', 'generated': '2026-11-07T16:50:00Z',
             'source': {'title': 'fixture', 'url': 'https://www.dmr.nd.gov/oilgas/mprindex.asp', 'files': []},
             'series': ['oil', 'water', 'gas', 'gasSold', 'flared', 'days'], 'months': months,
-            'coverage': {'wells': len(wells)}, 'wells': wells}
+            'coverage': {'wells': len(wells), 'formats': {'pdf': 6, 'xlsx': 6},
+                         'pdf': {'firstMonth': '2024-01', 'lastMonth': '2024-06', 'poolGroups': 3, 'poolTotalsMatched': 3, 'unitGroups': 1}},
+            'wells': wells}
 
 
 def write_production(out: Path, rows) -> Path:
