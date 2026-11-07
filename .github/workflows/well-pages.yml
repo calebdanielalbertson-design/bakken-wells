@@ -85,22 +85,29 @@ jobs:
             python scripts/wells/build_well_pages.py --inspect "$archive" || echo "::warning::Could not inspect $archive"
           done
 
-      # Spacing units, membership and order history come from the pipeline repository as a release
-      # asset on this repository (release tag "well-index-data", see README). Without it the build
-      # still succeeds: the well pages simply have no "Spacing units" panel and no unit or order pages.
-      - name: Fetch the spacing-unit and order data
+      # Spacing units, membership and order history, and the per-well production feed built from
+      # NDIC's free Monthly Production Reports, come from the pipeline repository as assets of the
+      # "well-index-data" release on this repository (see README). Without them the build still
+      # succeeds: the well pages simply have no "Spacing units" or "Production" panel.
+      - name: Fetch the spacing-unit, order and production data
         id: data
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p work/data
+          args=""
           if gh release download well-index-data --repo "$GITHUB_REPOSITORY" --pattern 'well-index-data.json.gz' --dir work/data; then
-            ls -l work/data
-            echo "args=--data work/data/well-index-data.json.gz" >> "$GITHUB_OUTPUT"
+            args="$args --data work/data/well-index-data.json.gz"
           else
-            echo "::warning::No well-index-data release asset; building without spacing units and orders"
-            echo "args=" >> "$GITHUB_OUTPUT"
+            echo "::warning::No well-index-data asset; building without spacing units and orders"
           fi
+          if gh release download well-index-data --repo "$GITHUB_REPOSITORY" --pattern 'well-production.json.gz' --dir work/data; then
+            args="$args --production work/data/well-production.json.gz"
+          else
+            echo "::warning::No well-production asset; building without production panels"
+          fi
+          ls -l work/data || true
+          echo "args=${args# }" >> "$GITHUB_OUTPUT"
 
       # On the daily schedule only: stop here when DMR's archives, the unit data and the generator
       # are the ones the live site was built from. Pushes and manual runs always build and deploy.
@@ -112,7 +119,8 @@ jobs:
             --live "${{ steps.base.outputs.url }}/build.json" \
             --provenance work/dmr/download-provenance.json \
             --generator "$GITHUB_SHA" \
-            $(test -n "${{ steps.data.outputs.args }}" && echo "--data work/data/well-index-data.json.gz") \
+            $(test -f work/data/well-index-data.json.gz && echo "--data work/data/well-index-data.json.gz") \
+            $(test -f work/data/well-production.json.gz && echo "--production work/data/well-production.json.gz") \
             --github-output "$GITHUB_OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Build the pages
