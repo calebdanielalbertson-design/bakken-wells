@@ -133,3 +133,17 @@ ul.plain.long{columns:1}
 table.production th time{font-weight:600}
 .production dl.facts{margin-top:.6rem}
 .production button.csv{font:inherit;text-align:left;cursor:pointer}
+
+/* township grid */
+.twpgrid{display:block;width:100%;max-width:420px;height:auto;background:var(--panel-2);border:1px solid var(--line);border-radius:10px}
+.twpgrid rect.sec{fill:transparent;stroke:var(--line);stroke-width:1}
+.twpgrid rect.unit{fill:rgba(164,217,41,.10)}
+.twpgrid a rect.wells:hover,.twpgrid a:focus rect.wells{fill:rgba(100,198,243,.18)}
+.twpgrid text{font:600 10px/1 var(--mono);fill:var(--muted);pointer-events:none}
+.twpgrid .heads circle{fill:var(--blue);stroke:#06101c;stroke-width:1}
+.twpgrid .heads circle.s-a{fill:var(--lime)}
+.twpgrid .heads circle.s-loc,.twpgrid .heads circle.s-pnc{fill:var(--amber)}
+.twpgrid .heads circle.approx{fill:transparent;stroke:var(--blue);stroke-width:1.5}
+.twpgrid .heads a:hover circle,.twpgrid .heads a:focus circle{r:5}
+.results li.township .r-title{color:var(--lime)}
+h3[id^="section-"]{margin:1.1rem 0 .3rem;font-size:1rem;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}

@@ -7,7 +7,7 @@ operates it, where is it, how do I get there.
 
 | URL | What it is |
 |---|---|
-| `/` | Fuzzy search over every well (name, API, NDIC file number, operator, county); `?q=` prefills |
+| `/` | Fuzzy search over every well (name, API, NDIC file number, operator, county); a township typed as `153-91`, `T153N R91W` or `sec 28 153-91` links to its page; `?q=` prefills |
 | `/wells/33-053-04567/` | One well: operator, status, type, spud, depth, legal location, map directions, nearby wells, every published attribute, links into the 3D viewers. Wells without an API use `/wells/file-<fileno>/` |
 | `/operators/<slug>/` | Every operator name NDIC publishes, wells grouped by county |
 | `/counties/<slug>/` | Operators, most recent spuds and permitted-not-drilled locations in a county |
@@ -15,7 +15,9 @@ operates it, where is it, how do I get there.
 | `/units/`, `/units/by-county/<slug>/` | Units by county (the county of most of a unit's wells) |
 | `/orders/<no>/` | One NDIC hearing order: date, case, applicant, pool, and what it did to each unit it touched |
 | `/orders/`, `/orders/by-year/<year>/` | Orders by the year they were signed |
-| `/sitemap.xml` | Sitemap index: `sitemap-pages.xml`, `sitemap-wells-N.xml` and `sitemap-units-N.xml` (10,000 URLs each) |
+| `/townships/<T>n-<R>w/` | One PLSS township (for example `/townships/153n-91w/`): a schematic 6 x 6 section grid with every well head placed in the quarter-quarter its legal location names, the wells and spacing units section by section (`#section-28` anchors), the orders on those units, the operators active there |
+| `/townships/` | Townships with wells or units, by county |
+| `/sitemap.xml` | Sitemap index: `sitemap-pages.xml`, `sitemap-townships.xml`, `sitemap-wells-N.xml` and `sitemap-units-N.xml` (10,000 URLs each) |
 | `/wells/index.json` | The compact search index |
 | `/build.json` | Counts, field mapping and warnings for the last build |
 
@@ -114,6 +116,22 @@ gh workflow run well-pages.yml --repo calebdanielalbertson-design/bakken-wells
 The first time, create the release instead: `gh release create well-index-data work/well-index-data.json.gz --title "Well index data" --notes "..."`.
 The file records its own generation time and the hashes of its inputs; `build.json` repeats them
 under `data`, and the unit and order sitemaps use the generation date as `lastmod`.
+
+## Townships
+
+Every well's published legal location ("NWNW Sec 28 T153N R91W") and every spacing unit's land
+description ("T153N R91W sections 21, 28") already name a PLSS township, so the index has a page
+per township with wells or units, no extra data needed. The page draws the township as a
+schematic grid: 36 equal squares in standard PLSS numbering (section 1 in the north-east corner,
+snaking west and east), each well head placed in the quarter-quarter its legal location names
+(a lot or an unparsed description sits at the section centre and is drawn hollow), and sections
+that lie in a spacing unit shaded. Below the grid: the wells and units of each section, the
+units whose land description names the township, the orders on those units and the operators
+active there. Well pages link their legal location to the section anchor; county pages list
+their townships; the search box recognises a township typed in any of the usual spellings.
+Township and range are north and west throughout North Dakota, so `153n-91w` is unambiguous.
+The grid is not a map: it says nothing about where a lateral goes, only where its surface
+location is recorded.
 
 ## Production
 

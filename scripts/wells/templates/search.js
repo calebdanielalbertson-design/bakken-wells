@@ -37,6 +37,20 @@ export const mapLinks = (lat, lon, name = '') => ({
 // type are indexes into index.statuses / index.types; slug is null when it equals formatApi(api).
 export const FIELDS = ['name', 'api', 'file', 'op', 'county', 'status', 'type', 'lat', 'lon', 'slug'];
 
+// A township typed as "153-91", "153n 91w", "t153n r91w" or "sec 28 t153n r91w" links straight to its
+// page when the index lists it (index.townships holds "<township>-<range>" keys). Plain digits such as a
+// file number never match: the two numbers need a separator, a space or the N/R letters between them.
+export function townshipQuery(text, townships = []) {
+  const upper = String(text ?? '').toUpperCase();
+  const m = upper.match(/(?:^|[^0-9A-Z])T?(1\d\d)(?:\s*N)?(?:\s*[-\/,]\s*|\s+)(?:R\s*)?(\d{2,3})(?:\s*W)?(?![0-9])/);
+  if (!m) return null;
+  const township = Number(m[1]), range = Number(m[2]);
+  if (!townships.includes(`${township}-${range}`)) return null;
+  const sec = upper.match(/SEC(?:TION)?\.?\s*(\d{1,2})(?![0-9])/);
+  const section = sec && Number(sec[1]) >= 1 && Number(sec[1]) <= 36 ? Number(sec[1]) : null;
+  return {township, range, section, slug: `${township}n-${range}w`};
+}
+
 export function createSearch(index) {
   const operators = index.operators || [], counties = index.counties || [];
   const statuses = index.statuses || [], types = index.types || [];
@@ -144,9 +158,17 @@ export function mountSearch({input, results, status, base = '', index, limit = 5
       return;
     }
     const {rows, total} = engine.search(trimmed, limit);
+    const township = townshipQuery(trimmed, index.townships || []);
     status.textContent = total
       ? `${fmt.format(total)} match${total === 1 ? '' : 'es'}${total > rows.length ? ` · showing the top ${rows.length}` : ''}`
-      : 'No matching wells. Try fewer words, part of the name, or the API or file number.';
+      : township ? 'Township page found.' : 'No matching wells. Try fewer words, part of the name, or the API or file number.';
+    if (township) {
+      const href = `${base}/townships/${township.slug}/${township.section ? `#section-${township.section}` : ''}`;
+      results.append(el('li', {class: 'township'}, [
+        el('a', {class: 'r-title', href, text: `Township ${township.township} North, Range ${township.range} West${township.section ? `, section ${township.section}` : ''}`}),
+        el('div', {class: 'r-meta', text: 'Township page: section grid, every well in its section, spacing units and orders'}),
+      ]));
+    }
     for (const {well} of rows) {
       const href = `${base}/wells/${well.slug}/`;
       const bits = [`API ${formatApi(well.api) || '—'}`, `File ${well.file || '—'}`, well.operator,
