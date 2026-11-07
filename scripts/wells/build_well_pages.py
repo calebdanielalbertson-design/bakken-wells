@@ -26,6 +26,7 @@ import argparse
 import html
 import json
 import math
+import os
 import re
 import shutil
 import sys
@@ -428,11 +429,13 @@ def shell(ctx, *, title, description, path, body, crumbs=None, jsonld=None, robo
     if jsonld:
         ld = '<script type="application/ld+json">' + json.dumps(jsonld, ensure_ascii=False, separators=(',', ':')).replace('</', '<\\/') + '</script>'
     robots_meta = f'<meta name="robots" content="{robots}">' if robots else ''
+    # Google Search Console ownership proof for the URL-prefix property (HTML tag method); public by nature
+    verification = f'<meta name="google-site-verification" content="{esc(ctx["site_verification"])}">' if ctx.get('site_verification') else ''
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
         f'<title>{esc(title)}</title><meta name="description" content="{esc(description)}">'
-        f'<link rel="canonical" href="{esc(canonical)}">{robots_meta}'
+        f'<link rel="canonical" href="{esc(canonical)}">{robots_meta}{verification}'
         f'<meta property="og:title" content="{esc(title)}"><meta property="og:url" content="{esc(canonical)}">'
         '<meta name="theme-color" content="#0b1220">'
         f'<link rel="icon" href="{MAIN_SITE}/favicon.svg" type="image/svg+xml">'
@@ -663,7 +666,8 @@ def sitemap_urlset(entries):
     return f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{body}</urlset>\n'
 
 
-def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path | None = None, data: Path | None = None, generator: str | None = None):
+def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path | None = None, data: Path | None = None, generator: str | None = None,
+          site_verification: str | None = None):
     started = datetime.now(timezone.utc)
     wells, report = load_sources(source, limit=limit)
     if not wells:
@@ -683,7 +687,8 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
     source_date = source_date or started.date().isoformat()
     ctx = {'base_url': base_url, 'base_path': parts.path.rstrip('/'), 'host': parts.netloc,
            'attribution': 'North Dakota Industrial Commission, Department of Mineral Resources, Oil and Gas Division',
-           'source_date': source_date, 'built': started.date().isoformat(), 'has_data': False}
+           'source_date': source_date, 'built': started.date().isoformat(), 'has_data': False,
+           'site_verification': (site_verification or '').strip() or None}
     units, orders, dsu_stats, dsu_data = [], [], {}, None
     if data:
         dsu_data = dsu.load_data(data)
@@ -784,6 +789,7 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
     status_counts = Counter(w['status'] or '—' for w in wells).most_common()
     report.update({
         'generated': index['generated'], 'generator': generator, 'baseUrl': base_url, 'basePath': ctx['base_path'],
+        'siteVerification': ctx['site_verification'],
         'sourceDate': source_date, 'layerDate': layer_date, 'lastmod': lastmod,
         'wells': len(wells), 'operators': len(operators), 'counties': len(counties),
         'withCoordinates': sum(1 for w in wells if w['lat'] is not None), 'withoutApi': sum(1 for w in wells if not w['api']),
@@ -850,6 +856,8 @@ def main(argv=None) -> int:
     parser.add_argument('--summary', type=Path, help='append a Markdown build summary to this file (GitHub step summary)')
     parser.add_argument('--data', type=Path, help='well-index-data.json.gz from the pipeline: adds spacing-unit and order pages')
     parser.add_argument('--generator', help='commit the generator runs from, recorded in build.json (GITHUB_SHA)')
+    parser.add_argument('--site-verification', default=os.environ.get('GOOGLE_SITE_VERIFICATION'),
+                        help='content of the google-site-verification meta tag Search Console asked for (default: $GOOGLE_SITE_VERIFICATION)')
     parser.add_argument('--inspect', type=Path, help='print the fields of a layer and exit')
     args = parser.parse_args(argv)
     if args.inspect:
@@ -857,7 +865,8 @@ def main(argv=None) -> int:
     if not args.source or not args.out:
         parser.error('--source and --out are required (or use --inspect)')
     try:
-        report = build(args.source, args.out, args.base_url, limit=args.limit, summary=args.summary, data=args.data, generator=args.generator)
+        report = build(args.source, args.out, args.base_url, limit=args.limit, summary=args.summary, data=args.data, generator=args.generator,
+                       site_verification=args.site_verification)
     except (BuildError, FileNotFoundError, ValueError) as error:
         print(f'error: {error}', file=sys.stderr)
         return 1

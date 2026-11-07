@@ -143,6 +143,16 @@ no packages.
    `CNAME` file for the new host.
 4. Submit `https://wells.bakkensubsurface.com/sitemap.xml` in Google Search Console.
 
+## Search Console
+
+The GitHub Pages address is a URL-prefix property in Google Search Console, verified by the HTML
+tag method: the Actions variable `GOOGLE_SITE_VERIFICATION` holds the `content` value of the
+`google-site-verification` meta tag Search Console issued, and the build (`--site-verification`,
+or that environment variable) writes the tag into the head of every page and records it in
+`build.json`. Leave the variable empty to publish without the tag. A custom domain under
+`bakkensubsurface.com` is covered by that domain's Domain property instead, so the tag is not
+needed there.
+
 ## Deep links into the viewers
 
 Every well page links to `https://bakkensubsurface.com/viewer/?dataset=full&well=<fileno>`; the

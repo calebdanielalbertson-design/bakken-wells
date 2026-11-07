@@ -117,6 +117,8 @@ jobs:
 
       - name: Build the pages
         if: steps.changed.outputs.unchanged != 'true'
+        env:
+          GOOGLE_SITE_VERIFICATION: ${{ vars.GOOGLE_SITE_VERIFICATION }}   # Search Console HTML-tag proof; empty = no tag
         run: |
           python scripts/wells/build_well_pages.py \
             --source work/dmr \

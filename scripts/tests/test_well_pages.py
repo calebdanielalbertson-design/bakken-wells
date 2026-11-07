@@ -246,6 +246,20 @@ class BuildTests(unittest.TestCase):
             page = next((out / 'wells').glob('*/index.html')).read_text(encoding='utf-8')
             self.assertIn('href="/assets/well.css"', page)
 
+    def test_site_verification_tag_is_on_every_page_only_when_given(self):
+        page = (self.out / 'index.html').read_text(encoding='utf-8')
+        self.assertNotIn('google-site-verification', page)
+        self.assertIsNone(self.report['siteVerification'])
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / 'site'
+            report = bwp.build(self.source, out, 'https://example.github.io/repo/', limit=20, site_verification=' abc"<DEF>123 ')
+            self.assertEqual(report['siteVerification'], 'abc"<DEF>123')
+            tag = '<meta name="google-site-verification" content="abc&quot;&lt;DEF&gt;123">'
+            pages = [p for p in out.rglob('*.html')]
+            self.assertGreater(len(pages), 20)
+            for page_path in pages:
+                self.assertIn(tag, page_path.read_text(encoding='utf-8'), page_path)
+
 
 if __name__ == '__main__':
     unittest.main()
