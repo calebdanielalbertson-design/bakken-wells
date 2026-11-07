@@ -136,9 +136,10 @@ location is recorded.
 ## Production
 
 Each well page carries a "Production" panel: monthly oil, gas and water as an inline chart (one
-series shown at a time), the last twelve months as a table, totals over the covered months, the
-first and last reported month, and a CSV of every month built in the browser from data embedded
-in the page. The source is NDIC's free Monthly Production Reports
+series shown at a time; the page carries the oil line and the browser draws gas or water from the
+page's embedded data when asked, with `templates/production.js` mirroring the Python renderer and a
+test checking the two agree), the last twelve months as a table, totals over the covered months, the
+first and last reported month, and a CSV of every month built in the browser from the same data. The source is NDIC's free Monthly Production Reports
 (<https://www.dmr.nd.gov/oilgas/mprindex.asp>): one report per month since January 2003, listing
 every well that reported in that month, as a PDF print until April 2015 and as an Excel workbook
 from May 2015. The pipeline downloads them with full provenance
@@ -228,8 +229,10 @@ wells". The 3D page has no URL state yet, so its link is generic.
   are separate pages until a grouping table is added.
 - New wells appear within a day of DMR adding them to the wells layer; the unit and order data
   refreshes only when a new snapshot is published from the pipeline.
-- About 560 MB of HTML before production and roughly 750 MB with it (a well page with a
-  production panel is 15 to 20 KB), within GitHub Pages limits but worth watching.
+- About 800 MB of HTML in all (560 MB before production; 904 MB with production back to 2003 and
+  the township pages, before the trim of 7 November 2026 took a well page from 14.2 KB to 12.4 KB
+  on average). GitHub Pages allows 1 GB, so every addition is weighed against that budget; the next
+  levers are the JSON-LD block of each well page and drawing the oil line in the browser too.
 
 ## Data
 
