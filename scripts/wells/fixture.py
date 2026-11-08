@@ -136,6 +136,8 @@ def make_data(rows):
          'allowance': {'wells': 8, 'order': '30000', 'case': '27000', 'date': '2019-05-01', 'qualifier': 'stated', 'mixed': False, 'terminated': False, 'method': 'unit_clause'},
          'headroom': {'allowed': 8, 'wellsInside': 3, 'assignedWells': 3, 'pending': 0, 'balance': 5, 'holder': 'Continental Resources', 'holderSource': 'wells',
                       'firstOrderDate': '2010-03-02', 'review': None},
+         # the public room-to-drill run (laterals that still fit at the neighbourhood's density; machine-made)
+         'roomToDrill': {'candidates': 4, 'equivalents': 3.72, 'targetDensity': 8.1, 'achievedDensity': 2.4, 'wellsPresent': 3, 'targetBasis': 'neighbourhood', 'notPlaceable': 1},
          'overlaps': ['dsu-fixture-b']},
         {'id': 'dsu-fixture-b', 'label': 'Bakken · 640 acres · SPC', 'formation': 'Bakken', 'acres': 640, 'type': 'SPC', 'mapSymbol': '640SPC',
          'dmrCase': None, 'dmrOrder': None, 'rings': [ring_b], 'bbox': bbox(ring_b),
@@ -143,6 +145,7 @@ def make_data(rows):
          'pools': ['Fixture-Bakken'], 'zones': [], 'lands': ['T152N R104W section 10'],
          'events': [event('18000', '15000', '2010-03-02', 'zone', None, None, hostile)],
          'allowance': {'wells': None, 'order': '18000', 'case': '15000', 'date': '2010-03-02', 'qualifier': None, 'mixed': False, 'terminated': False, 'method': None},
+         'roomToDrill': {'candidates': 0, 'equivalents': 0.0, 'targetDensity': 4.6, 'achievedDensity': 5.8, 'wellsPresent': 1, 'targetBasis': 'fallback', 'notPlaceable': 0},
          'overlaps': ['dsu-fixture-a']},
         {'id': 'dsu-fixture-c', 'label': 'Three Forks · 640 acres · SPC', 'formation': 'Three Forks', 'acres': 640, 'type': 'SPC', 'mapSymbol': '640SPC',
          'dmrCase': '9999', 'dmrOrder': '12345', 'rings': [ring_c], 'bbox': bbox(ring_c), 'wells': [], 'pools': [], 'zones': [], 'lands': []},

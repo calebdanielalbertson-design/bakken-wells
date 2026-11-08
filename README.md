@@ -99,6 +99,12 @@ private pipeline prepares (`explorer/prepare_well_index_data.py` there) from:
   page says so. No order document is copied; each order page points to the NDIC Oil and Gas
   Division by order number.
 
+- since 8 November 2026, for each eligible Bakken unit, the number of laterals that still fit at the
+  density its neighbourhood has reached (`roomToDrill`: candidates, two-mile equivalents, the target
+  and achieved density, whether the target is a county or basin stand-in), from the public
+  room-to-drill run described at bakkensubsurface.com/room-to-drill. Unit pages state the count as
+  machine-made and geometric, not a commitment to drill, and well pages repeat it in their unit list.
+
 Nothing from the viewer's estimated depth zones or the saved inventory model is in the file.
 
 The workflow downloads the file from this repository's `well-index-data` release
@@ -107,7 +113,7 @@ builder with `--data`. If the asset is missing the build still succeeds, without
 pages. To publish a new data snapshot from the pipeline checkout:
 
 ```
-python explorer/prepare_well_index_data.py --out work/well-index-data.json.gz
+python explorer/prepare_well_index_data.py --candidates work/room-to-drill/<run>/feeds/unit-candidates.json --out work/well-index-data.json.gz
 gh release upload well-index-data work/well-index-data.json.gz --clobber --repo calebdanielalbertson-design/bakken-wells
 gh release edit well-index-data --notes "Data generated $(date -u +%F) from the DSU snapshot of ..." --repo calebdanielalbertson-design/bakken-wells
 gh workflow run well-pages.yml --repo calebdanielalbertson-design/bakken-wells

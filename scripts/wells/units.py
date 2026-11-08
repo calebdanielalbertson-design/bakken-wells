@@ -250,6 +250,22 @@ def unit_page(ctx, unit, *, shell, status_text):
                   ('First linked order', esc(format_date(head.get('firstOrderDate'))) if head.get('firstOrderDate') else None)]
         if head.get('review'):
             facts.append(('Review note', esc(head['review'])))
+    room = unit.get('roomToDrill')
+    room_html = ''
+    if room is not None and room.get('candidates') is not None:
+        n = int(room['candidates'])
+        fit = f'{n:,} <small>({room["equivalents"]:g} two-mile equivalents)</small>' if n and room.get('equivalents') is not None else f'{n:,}'
+        facts += [('Laterals that still fit (Nov 2026 method)', fit),
+                  ('Neighbourhood target density', f'{room["targetDensity"]:g} two-mile laterals per 1,280 acres' if room.get('targetDensity') is not None else None),
+                  ('Density drilled so far', f'{room["achievedDensity"]:g} per 1,280 acres' if room.get('achievedDensity') is not None else None)]
+        basis = (' The county or basin value stands in for the target because fewer than eight developed units lie within 20 miles.'
+                 if room.get('targetBasis') == 'fallback' else '')
+        blocked = f' {room["notPlaceable"]:,} more would fit the density but not the spacing rule.' if room.get('notPlaceable') else ''
+        room_html = (f'<p class="note">Room to drill: {n:,} lateral{"" if n == 1 else "s"} still fit at the density this unit\'s neighbourhood has reached '
+                     f'(the larger of the 75th percentile of mature units within 10 miles and the median of units drilled in the last three years), '
+                     f'placed in the widest gaps with the setbacks of the November 2026 method.{blocked}{basis} '
+                     f'Machine-made and geometric: not a commitment to drill, not a permit, order, lease or plan, and no economics. Land is counted once, so a unit '
+                     f'under a larger unit shows only what the larger one left. <a href="{MAIN_SITE}/room-to-drill/" rel="noopener">How it is computed</a>.</p>')
 
     wells_rows = ''.join(
         f'<tr><td><a href="{base}/wells/{esc(m["well"]["slug"])}/">{esc(m["well"]["display_name"])}</a></td>'
@@ -292,7 +308,7 @@ def unit_page(ctx, unit, *, shell, status_text):
     body = (
         f'<p class="eyebrow">Spacing unit · {esc(county_label)}</p><h1>{esc(unit["title"])}</h1>'
         f'<p class="lede">{esc(unit["where"])}</p><div class="badges">{"".join(badges)}</div>'
-        f'<div class="grid"><section class="panel"><h2>Unit facts</h2>{facts_list(facts)}</section>'
+        f'<div class="grid"><section class="panel"><h2>Unit facts</h2>{facts_list(facts)}{room_html}</section>'
         f'<section class="panel"><h2>Map</h2>{map_html}<p class="note">DMR footprint (NAD83) with the published surface locations of its wells. Laterals run under the unit; pads often sit on a neighbouring section.</p>'
         f'<div class="actions">{"".join(links)}</div></section></div>'
         f'{wells_html}{history_html}{overlap_html}'
@@ -411,6 +427,9 @@ def well_units_panel(ctx, well):
         elif allowance.get('wells') is not None:
             bits.append(f'{allowance["wells"]:g} wells allowed by order {esc(allowance["order"])}')
         bits.append(f'{len(unit["members"])} wells inside')
+        room = unit.get('roomToDrill') or {}
+        if room.get('candidates') is not None:
+            bits.append(f'{room["candidates"]:,} more lateral{"" if room["candidates"] == 1 else "s"} still fit (Nov 2026 method, machine-made)')
         if member:
             bits.append(f'this lateral {member["insideFt"]:,} ft inside ({member["fraction"] * 100:.0f}%)')
         # data-acres lets templates/compare.js pick the smallest unit as the default comparison set
