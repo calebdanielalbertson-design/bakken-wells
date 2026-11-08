@@ -17,7 +17,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 export const addMonths = (first, i) => { let [y, m] = first.split('-').map(Number); m += i; y += Math.floor((m - 1) / 12); m = ((m - 1) % 12) + 1; return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}`; };
 export const monthLabel = (key, short = false) => { const m = Number(key.slice(5, 7)); return short ? `${MONTHS[m - 1]} ’${key.slice(2, 4)}` : `${MONTHS[m - 1]} ${key.slice(0, 4)}`; };
 const daysIn = (key) => new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)), 0).getDate();
-const thousands = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+export const thousands = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 // Python's f'{x:.0f}': nearest integer, ties to even.
 export const fmt = (v) => { const f = Math.floor(v); if (v - f === 0.5) return String(f % 2 === 0 ? f : f + 1); return String(Math.round(v)); };
 // Python's f'{x:.{d}f}' for the values the chart prints: ties to even at the last digit.

@@ -183,6 +183,19 @@ as the Division's own workbooks have them; a dash (withheld) and NR (not reporte
 `build.json` records the feed's file, generation time, month range, PDF month range and match
 counts under `production`, and the daily change check treats a new feed as a reason to rebuild.
 
+A well page can also compare its well with the other surveyed wells of its spacing unit, and a
+unit page can show the production of every well inside it (`templates/compare.js`). Nothing is
+stored for this: on request the module fetches the unit page, which lists the wells with at least
+660 ft of lateral inside the footprint with the feet inside and the share, then fetches each well's
+page and reads the production data it already embeds, its name, operator and spud date. It draws
+oil rate, cumulative oil, gas-oil ratio or water cut for every well against months on production
+or calendar time (the page's own well in colour, the others in grey, the median while at least
+half of the wells report), a sortable table, figures per 1,000 ft of surveyed lateral (feet inside
+divided by the share), and overlapping units on a switch. The block states first that this is a
+neighbourhood comparison and not a type curve: geometric membership, overlapping units not
+additive, wells of different vintage, lateral and design, volumes as first reported. The only
+static hooks are `data-acres` on each unit in a well page's list and the module tag.
+
 ## Running locally
 
 ```
@@ -199,8 +212,9 @@ holds a four-unit `well-index-data.json.gz`; pass it (or the real file from the 
 
 Tests: `python -m unittest discover -s scripts/tests` (reader, builder, fixtures, nearby wells,
 units and orders, production panel and its parity with the browser module), `node tests/test_well_search.mjs`
-(fuzzy search) and `node tests/test_production.mjs` (the browser module: decoding, derived series,
-the strip, the Arps fit, the CSV). Python 3.12 and Node 22; no packages.
+(fuzzy search), `node tests/test_production.mjs` (the browser module: decoding, derived series,
+the strip, the Arps fit, the CSV) and `node tests/test_compare.mjs` (the comparison module: per-well
+figures, the median, the multi-line chart). Python 3.12 and Node 22; no packages.
 
 The stylesheet (`templates/well.css`) uses the brand tokens of bakkensubsurface.com: white paper,
 ink, blue and lime, with oil, gas and water in the brand's dark lime, the site's copper and its dark

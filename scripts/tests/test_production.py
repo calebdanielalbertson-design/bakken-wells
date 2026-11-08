@@ -320,6 +320,20 @@ class BuildTests(unittest.TestCase):
         self.assertIn('Before Jul 2024 this well', html)
         self.assertIn('reported only as a unit total, so the reports hold no figures for the well itself in those years; its own figures start in Jul 2024.', html)
 
+    def test_compare_hooks(self):
+        """The comparison block reads the pages themselves; the build only marks the unit list and loads the module."""
+        html = self.page('full')                                          # the fixture's first well sits in unit dsu-fixture-a
+        self.assertIn('<li data-acres="1280"><a href="/repo/units/dsu-fixture-a/">', html)
+        self.assertIn('<script type="module" src="/repo/assets/compare.js">', html)
+        self.assertNotIn('class="compare"', html)                         # nothing static: the module builds the block on request
+        unit = (self.out / 'units' / 'dsu-fixture-a' / 'index.html').read_text(encoding='utf-8')
+        self.assertIn('<script type="module" src="/repo/assets/compare.js">', unit)
+        self.assertIn('<td class="num">10,400 ft<small>100%</small></td>', unit)   # what the module reads for lateral length
+        self.assertTrue((self.out / 'assets' / 'compare.js').exists())
+        self.assertIn('assets/compare.js', self.page('none'))              # no production of its own, but a unit to compare
+        no_units = next(p.read_text(encoding='utf-8') for p in (self.out / 'wells').glob('*/index.html') if 'Spacing units</h2>' not in p.read_text(encoding='utf-8'))
+        self.assertNotIn('assets/compare.js', no_units)                    # nothing to compare with
+
     def test_build_without_feed_has_no_panels(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / 'site'
@@ -328,6 +342,7 @@ class BuildTests(unittest.TestCase):
             self.assertIsNone(report['production'])
             page = next((out / 'wells').glob('*/index.html')).read_text(encoding='utf-8')
             self.assertNotIn('class="panel production"', page)
+            self.assertNotIn('assets/compare.js', page)                  # no feed, nothing to compare
             self.assertIn('No production feed', bwp.markdown_summary(report))
 
 
