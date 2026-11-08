@@ -296,8 +296,10 @@ def unit_page(ctx, unit, *, shell, status_text):
         f'<section class="panel"><h2>Map</h2>{map_html}<p class="note">DMR footprint (NAD83) with the published surface locations of its wells. Laterals run under the unit; pads often sit on a neighbouring section.</p>'
         f'<div class="actions">{"".join(links)}</div></section></div>'
         f'{wells_html}{history_html}{overlap_html}'
+        # the comparison block (production of the wells inside, read from their pages on request) needs a feed and members
+        + (f'<script type="module" src="{base}/assets/compare.js"></script>' if ctx.get('production') and unit['members'] else '')
     )
-    centroid = ((unit['bbox'][1] + unit['bbox'][3]) / 2, (unit['bbox'][0] + unit['bbox'][2]) / 2) if unit.get('bbox') else None
+    centroid =((unit['bbox'][1] + unit['bbox'][3]) / 2, (unit['bbox'][0] + unit['bbox'][2]) / 2) if unit.get('bbox') else None
     jsonld = [{'@context': 'https://schema.org', '@type': 'Place', 'name': f'{unit["title"]}, {unit["where"]}', 'url': ctx['base_url'] + path,
                'identifier': {'@type': 'PropertyValue', 'propertyID': 'Bakken Subsurface unit id', 'value': unit['id']},
                'address': {'@type': 'PostalAddress', 'addressLocality': county_label, 'addressRegion': 'ND', 'addressCountry': 'US'}}]
@@ -411,6 +413,8 @@ def well_units_panel(ctx, well):
         bits.append(f'{len(unit["members"])} wells inside')
         if member:
             bits.append(f'this lateral {member["insideFt"]:,} ft inside ({member["fraction"] * 100:.0f}%)')
-        items += f'<li><a href="{base}/units/{esc(unit["slug"])}/">{esc(unit["where"])}</a><small>{" · ".join(bits)}</small></li>'
+        # data-acres lets templates/compare.js pick the smallest unit as the default comparison set
+        items += (f'<li data-acres="{unit.get("acres") or ""}"><a href="{base}/units/{esc(unit["slug"])}/">{esc(unit["where"])}</a>'
+                  f'<small>{" · ".join(bits)}</small></li>')
     return (f'<section class="panel"><h2>Spacing units</h2><ul class="nearby">{items}</ul>'
             '<p class="note">Units whose published footprint holds at least 660 ft of this well\'s surveyed lateral. Allowances are facts extracted from signed NDIC orders, machine-extracted and not human-reviewed.</p></section>')

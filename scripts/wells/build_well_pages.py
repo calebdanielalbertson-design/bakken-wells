@@ -539,6 +539,7 @@ def well_page(ctx, w):
         f'{prod.well_production_panel(ctx, w)}{dsu.well_units_panel(ctx, w)}{nearby_html}{attributes_html}'
         f'<script src="{base}/assets/page.js" defer></script>'
         + (f'<script type="module" src="{base}/assets/production.js"></script>' if w.get('production') else '')
+        + (f'<script type="module" src="{base}/assets/compare.js"></script>' if ctx.get('production') and w.get('units') else '')
     )
     jsonld = [{
         '@context': 'https://schema.org', '@type': 'Place', 'name': w['display_name'], 'url': ctx['base_url'] + path,
@@ -718,6 +719,7 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
     shutil.copy(TEMPLATES / 'search.js', out / 'assets' / 'search.js')
     shutil.copy(TEMPLATES / 'page.js', out / 'assets' / 'page.js')
     shutil.copy(TEMPLATES / 'production.js', out / 'assets' / 'production.js')
+    shutil.copy(TEMPLATES / 'compare.js', out / 'assets' / 'compare.js')
     (out / '.nojekyll').write_text('')
     if ctx['host'] and not ctx['host'].endswith('github.io') and not ctx['base_path']:
         (out / 'CNAME').write_text(ctx['host'] + '\n')

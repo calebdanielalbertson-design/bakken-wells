@@ -193,6 +193,50 @@ table.production th time{font-weight:600}
 .production .actions{margin-top:18px}
 .production button.csv{font:inherit;text-align:left;cursor:pointer}
 
+/* comparison block (templates/compare.js): the wells of a spacing unit together */
+.compare{margin-top:16px}
+.compare .sub{color:var(--muted);font-size:14px;margin:0 0 12px}
+.compare .status{margin:0 0 10px}
+.compare .controls{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;padding-bottom:12px;border-bottom:1px solid var(--line);margin-bottom:12px}
+.compare .switch{display:inline-flex;align-items:center;gap:8px;font-size:13px}
+.compare .switch>span{font-weight:650;color:var(--ink)}
+.compare .seg{display:inline-flex;border:1px solid #929da4;border-radius:4px;padding:2px;background:#fff}
+.compare .seg button{font:inherit;font-size:13px;font-weight:600;line-height:1.3;padding:5px 12px;border:0;border-radius:2px;background:transparent;color:var(--ink);cursor:pointer}
+.compare .seg button[aria-pressed=true]{background:var(--blue);color:var(--ink-deep)}
+.compare .seg button:hover:not([aria-pressed=true]):not(:disabled){background:var(--tint)}
+.compare .seg button:disabled{color:#9aa6ae;cursor:default}
+.compare select{font:inherit;font-size:13px;padding:5px 8px;border:1px solid #929da4;border-radius:4px;background:#fff;color:var(--ink);max-width:min(420px,80vw)}
+.compare label.chk{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:600;cursor:pointer}
+.compare label.chk input{width:16px;height:16px;accent-color:var(--blue-dark);margin:0}
+.compare .legend{display:flex;flex-wrap:wrap;gap:6px 18px;list-style:none;padding:0;margin:0 0 6px;font-size:12.5px;font-weight:600;color:var(--ink)}
+.compare .legend li{display:inline-flex;align-items:center;gap:7px}
+.compare .legend i{display:inline-block;width:18px;height:0;border-top:2px solid #8b9aa8;border-radius:2px}
+.compare .legend li.me i{border-top:3px solid var(--oil)}
+.compare .legend li.median i{border-top:2px dashed var(--ink-deep)}
+.compare .legend li.left{color:var(--muted);font-weight:500}
+.compare .chartwrap{position:relative;margin-top:4px}
+.compare .chartwrap p.t{margin:0 0 4px;font-size:13px;color:var(--muted)}
+.compare .chartwrap p.t b{color:var(--ink-deep);font-weight:650}
+svg.prodchart.cmp path.w{fill:none;stroke:#8b9aa8;stroke-width:1.25;opacity:.65;stroke-linejoin:round;stroke-linecap:round}
+svg.prodchart.cmp path.w.me{stroke:var(--oil);stroke-width:2.5;opacity:1}
+svg.prodchart.cmp path.w.med{stroke:var(--ink-deep);stroke-width:1.5;stroke-dasharray:5 4;opacity:.9}
+svg.prodchart.cmp path.w.hl{stroke:var(--blue-dark);stroke-width:2.25;opacity:1}
+svg.prodchart.cmp circle.pt{stroke:var(--blue-dark)}
+.compare .tip{position:absolute;pointer-events:none;background:#fff;border:1px solid var(--rule);border-radius:4px;padding:8px 10px;box-shadow:0 6px 24px rgba(32,38,43,.14);font-size:12.5px;line-height:1.45;min-width:170px;max-width:260px;display:none;z-index:2}
+.compare .tip b{display:block;font-size:13px;margin-bottom:4px;color:var(--ink-deep)}
+.compare .tip div{display:flex;align-items:baseline;gap:7px;justify-content:space-between}
+.compare .tip div span:first-child{font-weight:650;font-variant-numeric:tabular-nums;color:var(--ink-deep)}
+.compare .tip div span:last-child{color:var(--muted);text-align:right}
+.compare .scroll{overflow-x:auto;margin-top:14px}
+table.cmp{font-size:13px;min-width:1040px}
+table.cmp th:first-child,table.cmp td:first-child{white-space:nowrap;overflow-wrap:normal;min-width:170px}
+table.cmp th button{font:inherit;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:none;border:0;padding:0;cursor:pointer;white-space:nowrap}
+table.cmp th button:hover{color:var(--ink-deep)}
+table.cmp th button[aria-sort=ascending],table.cmp th button[aria-sort=descending]{color:var(--ink-deep)}
+table.cmp td.num small{display:inline;margin-left:4px;color:var(--muted);font-family:var(--sans)}
+table.cmp tr.me td{background:var(--tint);font-weight:600}
+@media(max-width:600px){.compare .chartwrap{overflow-x:auto;overflow-y:hidden}.compare svg.prodchart.cmp{min-width:600px}}
+
 /* township grid */
 .twpgrid{display:block;width:100%;max-width:420px;height:auto;background:#fff;border:1px solid var(--line);border-radius:4px}
 .twpgrid rect.sec{fill:transparent;stroke:var(--line);stroke-width:1}

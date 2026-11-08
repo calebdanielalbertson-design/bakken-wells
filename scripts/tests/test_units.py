@@ -151,7 +151,8 @@ class DataBuildTests(unittest.TestCase):
         self.assertIn('this lateral 10,400 ft inside (100%)', hawkinson)
         self.assertIn('8 wells allowed by order 30000', hawkinson)
         owan = self.pages[f'wells/{self.slug(self.rows[1])}/index.html']
-        self.assertEqual(owan.count('<li><a href="/repo/units/'), 2)       # in both units, larger first
+        self.assertEqual(owan.count('<li data-acres="'), 2)                 # in both units, larger first; acres for compare.js
+        self.assertIn('<li data-acres="1280"><a href="/repo/units/dsu-fixture-a/">', owan)
         self.assertLess(owan.index('dsu-fixture-a'), owan.index('dsu-fixture-b'))
         in_d = self.pages[f'wells/{self.slug(self.rows[9])}/index.html']
         self.assertIn('terminated by order 31000 (Nov 15, 2021)', in_d)

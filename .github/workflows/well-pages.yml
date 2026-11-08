@@ -73,6 +73,7 @@ jobs:
           python -m unittest discover -s scripts/tests -p 'test_*.py'
           node tests/test_well_search.mjs
           node tests/test_production.mjs
+          node tests/test_compare.mjs
 
       - name: List archives on the DMR download page
         run: python scripts/wells/fetch_dmr.py --list || echo "::warning::Could not list the DMR download page"
