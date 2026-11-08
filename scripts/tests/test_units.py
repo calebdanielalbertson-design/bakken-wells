@@ -112,6 +112,19 @@ class DataBuildTests(unittest.TestCase):
         self.assertIn('machine-extracted', html)
         self.assertIn('Continental Resources', html)                        # headroom holder
         self.assertIn('<dt>Balance under the allowance</dt><dd>+5</dd>', html)
+        self.assertIn('<dt>Laterals that still fit (Nov 2026 method)</dt><dd>4 <small>(3.72 two-mile equivalents)</small></dd>', html)
+        self.assertIn('<dt>Neighbourhood target density</dt><dd>8.1 two-mile laterals per 1,280 acres</dd>', html)
+        self.assertIn('Room to drill: 4 laterals still fit', html)
+        self.assertIn('1 more would fit the density but not the spacing rule', html)
+        self.assertIn('not a commitment to drill', html)
+        self.assertIn('href="https://bakkensubsurface.com/room-to-drill/"', html)
+        b = self.pages['units/dsu-fixture-b/index.html']
+        self.assertIn('<dt>Laterals that still fit (Nov 2026 method)</dt><dd>0</dd>', b)
+        self.assertIn('Room to drill: 0 laterals still fit', b)
+        self.assertIn('November 2026 method. The county or basin value stands in for the target', b)   # the fallback note; no blocked-count sentence for this unit
+        self.assertNotIn('spacing rule', b)
+        self.assertNotIn('county or basin value stands in', self.pages['units/dsu-fixture-a/index.html'])
+        self.assertNotIn('Laterals that still fit', self.pages['units/dsu-fixture-c/index.html'])   # not in the feed: nothing said
         for row in self.rows[:3]:
             self.assertIn(f'/repo/wells/{self.slug(row)}/', html)
         self.assertIn('10,400 ft<small>100%</small>', html)
@@ -150,6 +163,7 @@ class DataBuildTests(unittest.TestCase):
         self.assertIn('/repo/units/dsu-fixture-a/', hawkinson)
         self.assertIn('this lateral 10,400 ft inside (100%)', hawkinson)
         self.assertIn('8 wells allowed by order 30000', hawkinson)
+        self.assertIn('4 more laterals still fit (Nov 2026 method, machine-made)', hawkinson)
         owan = self.pages[f'wells/{self.slug(self.rows[1])}/index.html']
         self.assertEqual(owan.count('<li data-acres="'), 2)                 # in both units, larger first; acres for compare.js
         self.assertIn('<li data-acres="1280"><a href="/repo/units/dsu-fixture-a/">', owan)
