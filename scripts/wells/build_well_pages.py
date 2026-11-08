@@ -440,7 +440,7 @@ def shell(ctx, *, title, description, path, body, crumbs=None, jsonld=None, robo
         f'<title>{esc(title)}</title><meta name="description" content="{esc(description)}">'
         f'<link rel="canonical" href="{esc(canonical)}">{robots_meta}{verification}'
         f'<meta property="og:title" content="{esc(title)}"><meta property="og:url" content="{esc(canonical)}">'
-        '<meta name="theme-color" content="#0b1220">'
+        '<meta name="theme-color" content="#ffffff">'
         f'<link rel="icon" href="{MAIN_SITE}/favicon.svg" type="image/svg+xml">'
         f'<link rel="stylesheet" href="{base}/assets/well.css">{ld}</head><body>'
         '<a class="skip" href="#main">Skip to content</a>'
