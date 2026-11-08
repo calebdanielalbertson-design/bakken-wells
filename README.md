@@ -135,11 +135,24 @@ location is recorded.
 
 ## Production
 
-Each well page carries a "Production" panel: monthly oil, gas and water as an inline chart (one
-series shown at a time; the page carries the oil line and the browser draws gas or water from the
-page's embedded data when asked, with `templates/production.js` mirroring the Python renderer and a
-test checking the two agree), the last twelve months as a table, totals over the covered months, the
-first and last reported month, and a CSV of every month built in the browser from the same data. The source is NDIC's free Monthly Production Reports
+Each well page carries a "Production" panel laid out as an engineer reads a well. The page itself
+holds six stat tiles (cumulative oil; the peak rate in barrels per producing day; the last twelve
+months against the twelve before; gas-oil ratio and water cut now and in the first year; the share
+of gas sold), the early-time and current facts (months to peak, first 3, 6, 12 and 24-month
+cumulatives, the latest rate as a share of the peak, uptime), a twelve-month table with rate and
+ratio columns, and one chart strip, oil in barrels per producing day. `templates/production.js`
+builds the rest in the browser from the data embedded in the page: the controls, gas and water
+strips on their own axes over one time axis, volume and cumulative views, a log scale, trailing
+three-month gas-oil ratio, water cut and uptime, a crosshair readout (arrow keys too), the CSV with
+derived columns, and an optional Arps decline fit: a modified hyperbolic with the operator study's
+conventions (fit from the peak month or the last 60 months, months with fewer than 20 producing
+days left out, b capped at 1.5, 8 %/yr terminal decline, forecast to a 5 bbl/d floor within a
+30-year life, scaled to the actual cumulative), labelled orientation only. `strip_svg` in
+`production.py` and `stripSvg` in the module draw identical markup for the same input (integer
+coordinates, ties to even, the same tick and number formats); `test_production.py` runs the module
+through node on random series to prove it. Rates per producing day divide a month's volume by the
+days reported, so a month without producing days has no rate; a ratio is taken over the months where
+both sides are known. The source is NDIC's free Monthly Production Reports
 (<https://www.dmr.nd.gov/oilgas/mprindex.asp>): one report per month since January 2003, listing
 every well that reported in that month, as a PDF print until April 2015 and as an Excel workbook
 from May 2015. The pipeline downloads them with full provenance
@@ -185,8 +198,14 @@ holds a four-unit `well-index-data.json.gz`; pass it (or the real file from the 
 `--data` to build the unit and order pages too.
 
 Tests: `python -m unittest discover -s scripts/tests` (reader, builder, fixtures, nearby wells,
-units and orders) and `node tests/test_well_search.mjs` (fuzzy search). Python 3.12 and Node 22;
-no packages.
+units and orders, production panel and its parity with the browser module), `node tests/test_well_search.mjs`
+(fuzzy search) and `node tests/test_production.mjs` (the browser module: decoding, derived series,
+the strip, the Arps fit, the CSV). Python 3.12 and Node 22; no packages.
+
+The stylesheet (`templates/well.css`) uses the brand tokens of bakkensubsurface.com: white paper,
+ink, blue and lime, with oil, gas and water in the brand's dark lime, the site's copper and its dark
+blue, a triple checked to stay distinct under the common forms of colour-vision deficiency and to
+clear 3:1 on white.
 
 ## Custom domain
 
@@ -229,10 +248,12 @@ wells". The 3D page has no URL state yet, so its link is generic.
   are separate pages until a grouping table is added.
 - New wells appear within a day of DMR adding them to the wells layer; the unit and order data
   refreshes only when a new snapshot is published from the pipeline.
-- About 800 MB of HTML in all (560 MB before production; 904 MB with production back to 2003 and
-  the township pages, before the trim of 7 November 2026 took a well page from 14.2 KB to 12.4 KB
-  on average). GitHub Pages allows 1 GB, so every addition is weighed against that budget; the next
-  levers are the JSON-LD block of each well page and drawing the oil line in the browser too.
+- About 896.8 MB of HTML in all (70,922 files): 560 MB before production, 904 MB with production
+  back to 2003 and the township pages, 810 MB after the trim of 7 November 2026, and the
+  engineer-grade panel of 8 November 2026 added about 87 MB of tiles, facts and table rows (about
+  3.2 KB on each of the 25,000 pages with production). GitHub
+  Pages allows 1 GB, so every addition is weighed against that budget; the next levers are the
+  JSON-LD block of each well page and drawing the oil strip in the browser too.
 
 ## Data
 
