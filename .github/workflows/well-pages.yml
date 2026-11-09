@@ -2,16 +2,12 @@ name: Well pages
 
 # Builds one static page per North Dakota well from the public NDIC/DMR GIS download and
 # publishes the result to this repository's GitHub Pages site.
-#   - daily on a schedule (DMR regenerates the wells layer every morning, about 09:15 UTC;
-#     a scheduled run that finds the same archives, unit data and generator as the live
-#     site stops after the download instead of redeploying 70,000 unchanged pages)
+# Automatic daily refresh is paused. The remaining triggers are:
 #   - on demand from the Actions tab (optionally without deploying)
 #   - after changes to the generator land on main
 #   - on pull requests that touch the generator (build and report only, no deploy)
 
 on:
-  schedule:
-    - cron: '27 10 * * *'
   workflow_dispatch:
     inputs:
       deploy:
