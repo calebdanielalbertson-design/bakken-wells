@@ -42,6 +42,7 @@ scripts/wells/shapefile.py        standard-library reader for the DBF and SHP po
 scripts/wells/build_well_pages.py turns the layer into the static site described above
 scripts/wells/units.py            spacing-unit and order pages from the pipeline's data file (--data)
 scripts/wells/changed.py          tells a scheduled run whether anything changed since the live build
+scripts/wells/hours.py            tells a run to wait when it starts inside Central business hours
 scripts/wells/fixture.py          synthetic OGD_Wells-shaped archives and a small data file for tests and previews
 scripts/wells/codes.json          plain-language readings of NDIC status and well-type codes (edit freely)
 scripts/wells/templates/          well.css, search.js (fuzzy search), page.js
@@ -49,8 +50,19 @@ scripts/wells/templates/          well.css, search.js (fuzzy search), page.js
 ```
 
 The workflow runs every day at 10:27 UTC (DMR regenerates the wells layer each morning at about
-09:15 UTC), on demand from the Actions tab, and whenever the generator changes on `main`. Each
-run tests the code, lists the archives linked from the DMR download page, downloads
+09:15 UTC) and again at 00:47 UTC (18:47 CST, 19:47 CDT), on demand from the Actions tab, and
+whenever the generator changes on `main`.
+
+Downloads from DMR stay outside Central business hours (07:00 to 18:00, Monday to Friday). GitHub
+can start a scheduled run hours late (the 10:27 UTC run has started around 16:30 UTC, mid-morning
+in North Dakota), so `scripts/wells/hours.py` checks the time when a run actually starts. A run
+that lands in business hours runs the tests, downloads nothing and deploys nothing; the evening
+run then picks up the day's layer, or a generator change pushed during the day, because
+`changed.py` compares the generator commit. A manual run can go ahead anyway with the
+`during_business_hours` input. A pull request opened during business hours runs the tests only;
+re-run it after 18:00 Central to see the build.
+
+Each run that goes ahead tests the code, lists the archives linked from the DMR download page, downloads
 `OGD_Wells.zip` (and the optional permit-status layer), fetches the spacing-unit data, builds
 into `work/wells-site/`, writes a Markdown report to the job summary (record counts, which DBF
 columns were recognised, status codes seen, warnings) and deploys. Pull requests build and

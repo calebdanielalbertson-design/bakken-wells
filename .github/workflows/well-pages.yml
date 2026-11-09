@@ -8,16 +8,30 @@ name: Well pages
 #   - on demand from the Actions tab (optionally without deploying)
 #   - after changes to the generator land on main
 #   - on pull requests that touch the generator (build and report only, no deploy)
+#
+# DMR downloads stay outside Central business hours (07:00-18:00, Monday to Friday;
+# scripts/wells/hours.py). GitHub can start a scheduled run hours late (the 10:27 UTC run
+# has started around 16:30 UTC, mid-morning Central), so the time is checked when the run
+# starts. A run that lands in business hours runs the tests and downloads nothing; the
+# evening schedule (00:47 UTC, 18:47 CST / 19:47 CDT) then picks up the day's layer, or a
+# generator change pushed during the day (changed.py compares the generator commit). A
+# manual run may go ahead anyway with "during_business_hours"; a pull request opened during
+# business hours runs the tests only, so re-run it after 18:00 Central to see the build.
 
 on:
   schedule:
     - cron: '27 10 * * *'
+    - cron: '47 0 * * *'
   workflow_dispatch:
     inputs:
       deploy:
         description: Deploy to GitHub Pages after building
         type: boolean
         default: true
+      during_business_hours:
+        description: Download from DMR even during Central business hours (07:00-18:00, Mon-Fri)
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
@@ -43,13 +57,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     outputs:
-      skip: ${{ steps.changed.outputs.unchanged }}
+      skip: ${{ steps.hours.outputs.defer == 'true' || steps.changed.outputs.unchanged == 'true' }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      # Every step that reaches DMR (and the build that needs its download) waits while this says defer.
+      - name: Check Central business hours
+        id: hours
+        run: |
+          python scripts/wells/hours.py \
+            --override "${{ github.event_name == 'workflow_dispatch' && inputs.during_business_hours }}" \
+            --github-output "$GITHUB_OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Decide the public base URL
         id: base
@@ -76,12 +98,15 @@ jobs:
           node tests/test_compare.mjs
 
       - name: List archives on the DMR download page
+        if: steps.hours.outputs.defer != 'true'
         run: python scripts/wells/fetch_dmr.py --list || echo "::warning::Could not list the DMR download page"
 
       - name: Download the wells archive
+        if: steps.hours.outputs.defer != 'true'
         run: python scripts/wells/fetch_dmr.py --out work/dmr
 
       - name: Inspect the layers' columns
+        if: steps.hours.outputs.defer != 'true'
         run: |
           for archive in work/dmr/*.zip; do
             python scripts/wells/build_well_pages.py --inspect "$archive" || echo "::warning::Could not inspect $archive"
@@ -93,6 +118,7 @@ jobs:
       # succeeds: the well pages simply have no "Spacing units" or "Production" panel.
       - name: Fetch the spacing-unit, order and production data
         id: data
+        if: steps.hours.outputs.defer != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -115,7 +141,7 @@ jobs:
       # are the ones the live site was built from. Pushes and manual runs always build and deploy.
       - name: Compare with the live site
         id: changed
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' && steps.hours.outputs.defer != 'true'
         run: |
           python scripts/wells/changed.py \
             --live "${{ steps.base.outputs.url }}/build.json" \
@@ -126,7 +152,7 @@ jobs:
             --github-output "$GITHUB_OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Build the pages
-        if: steps.changed.outputs.unchanged != 'true'
+        if: steps.hours.outputs.defer != 'true' && steps.changed.outputs.unchanged != 'true'
         env:
           GOOGLE_SITE_VERIFICATION: ${{ vars.GOOGLE_SITE_VERIFICATION }}   # Search Console HTML-tag proof; empty = no tag
         run: |
@@ -140,7 +166,7 @@ jobs:
           cat work/build-summary.md
 
       - name: Keep the build report
-        if: steps.changed.outputs.unchanged != 'true'
+        if: steps.hours.outputs.defer != 'true' && steps.changed.outputs.unchanged != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: well-pages-report
@@ -152,11 +178,11 @@ jobs:
       # Same tarball actions/upload-pages-artifact would build, minus its per-file log line
       # (tens of thousands of them), so the column report above stays readable in the log.
       - name: Package for GitHub Pages
-        if: steps.changed.outputs.unchanged != 'true'
+        if: steps.hours.outputs.defer != 'true' && steps.changed.outputs.unchanged != 'true'
         run: tar --dereference --hard-dereference --directory work/wells-site --exclude=.git --exclude=.github -cf "$RUNNER_TEMP/artifact.tar" .
 
       - uses: actions/upload-artifact@v4
-        if: steps.changed.outputs.unchanged != 'true'
+        if: steps.hours.outputs.defer != 'true' && steps.changed.outputs.unchanged != 'true'
         with:
           name: github-pages
           path: ${{ runner.temp }}/artifact.tar
