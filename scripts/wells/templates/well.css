@@ -250,3 +250,17 @@ table.cmp tr.me td{background:var(--tint);font-weight:600}
 .twpgrid .heads a:hover circle,.twpgrid .heads a:focus circle{r:5}
 .results li.township .r-title{color:var(--lime-dark)}
 h3[id^="section-"]{margin:1.1rem 0 .3rem;font-size:1rem;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+
+/* bakkensubsurface.com/wells/ (--layout site): the site's own header and footer sit around the page, so the
+   index's sub-navigation and source notes take the place of its old header and footer. */
+.wells-main{padding:4px 0 8px}
+.wells-nav{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;font-weight:550;padding:14px 0 8px;border-bottom:1px solid var(--line)}
+.wells-nav a{color:var(--ink);text-decoration:none;padding:4px 0}
+.wells-nav a:hover{color:var(--blue-dark)}
+.wells-nav a[aria-current]{color:var(--blue-dark);text-decoration:underline;text-decoration-color:var(--lime);text-decoration-thickness:2px;text-underline-offset:8px}
+.wells-page h1,.wells-page h2{font-family:var(--sans)}
+.wells-sources{border-top:1px solid var(--line);margin-top:32px;padding:16px 0 8px;color:var(--muted);font-size:13px}
+.wells-sources p{margin:0 0 8px}
+.wells-page h3{font-family:var(--sans);font-size:16px;line-height:1.3;font-weight:650;letter-spacing:-.01em;margin:18px 0 8px;color:var(--ink-deep)}
+.completion .sub{margin:0 0 10px;color:var(--muted);font-size:14px}
+table.casing td:first-child{white-space:nowrap}

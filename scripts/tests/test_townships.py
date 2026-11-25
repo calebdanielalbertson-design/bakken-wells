@@ -16,7 +16,12 @@ NS = {'s': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
 
 class HelperTests(unittest.TestCase):
     def test_parse_legal_and_lands(self):
-        self.assertEqual(tws.parse_legal('NWNW Sec 28 T153N R91W'), {'qq': 'NWNW', 'section': 28, 'township': 153, 'range': 91})
+        self.assertEqual(tws.parse_legal('NWNW Sec 28 T153N R91W'), {'qq': 'NWNW', 'section': 28, 'township': 153, 'range': 91, 'tdir': 'N', 'rdir': 'W'})
+        # Montana: townships north or south, ranges east or west (scripts/wells/montana.py writes the legal location this way)
+        self.assertEqual(tws.parse_legal('SENWNW Sec 2 T7S R10W'), {'qq': 'SENWNW', 'section': 2, 'township': 7, 'range': 10, 'tdir': 'S', 'rdir': 'W'})
+        self.assertEqual(tws.parse_legal('Sec 12 T26N R59E')['rdir'], 'E')
+        self.assertEqual((tws.slug_of(26, 59, 'N', 'E'), tws.short_name(7, 10, 'S', 'W'), tws.long_name(7, 10, 'S', 'W')),
+                         ('26n-59e', 'T7S R10W', 'Township 7 South, Range 10 West'))
         self.assertEqual(tws.parse_legal('C NW Sec 21 T157N R95W')['qq'], 'C NW')
         self.assertEqual(tws.parse_legal('Sec 2 T140N R73W')['qq'], '')
         self.assertIsNone(tws.parse_legal('Sec 37 T140N R73W'))

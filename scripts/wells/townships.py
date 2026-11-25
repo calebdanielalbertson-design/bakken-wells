@@ -22,7 +22,9 @@ from collections import Counter, defaultdict
 esc = lambda value: html.escape('' if value is None else str(value), quote=True)
 slugify = lambda value: re.sub(r'[^a-z0-9]+', '-', str(value or '').lower()).strip('-')[:80] or 'unknown'
 
-LEGAL = re.compile(r'^(?:(?P<qq>[A-Z0-9 ]+?) )?Sec (?P<sec>\d{1,2}) T(?P<t>\d{3})N R(?P<r>\d{2,3})W$')
+LEGAL = re.compile(r'^(?:(?P<qq>[A-Z0-9 ]+?) )?Sec (?P<sec>\d{1,2}) T(?P<t>\d{1,3})(?P<td>[NS]) R(?P<r>\d{1,3})(?P<rd>[EW])$')
+STATES = {'ND': ('North Dakota', 'NDIC'), 'MT': ('Montana', 'the Montana Board of Oil and Gas Conservation')}
+WORDS = {'N': 'North', 'S': 'South', 'E': 'East', 'W': 'West'}
 LAND = re.compile(r'T(?P<t>\d{3})N R(?P<r>\d{2,3})W sections? (?P<secs>[\d, ]+)')
 QUARTER_X = {'W': 0.0, 'E': 0.5}
 QUARTER_Y = {'N': 0.0, 'S': 0.5}
@@ -41,7 +43,8 @@ def parse_legal(text):
     section = int(match.group('sec'))
     if not 1 <= section <= 36:
         return None
-    return {'qq': (match.group('qq') or '').strip(), 'section': section, 'township': int(match.group('t')), 'range': int(match.group('r'))}
+    return {'qq': (match.group('qq') or '').strip(), 'section': section, 'township': int(match.group('t')), 'range': int(match.group('r')),
+            'tdir': match.group('td'), 'rdir': match.group('rd')}
 
 
 def parse_lands(lands):
@@ -55,21 +58,37 @@ def parse_lands(lands):
     return out
 
 
-def slug_of(t, r) -> str:
-    return f'{t}n-{r}w'
+def slug_of(t, r, td='N', rd='W') -> str:
+    return f'{t}{td.lower()}-{r}{rd.lower()}'
 
 
-def short_name(t, r) -> str:
-    return f'T{t}N R{r}W'
+def short_name(t, r, td='N', rd='W') -> str:
+    return f'T{t}{td} R{r}{rd}'
 
 
-def long_name(t, r) -> str:
-    return f'Township {t} North, Range {r} West'
+def long_name(t, r, td='N', rd='W') -> str:
+    return f'Township {t} {WORDS[td]}, Range {r} {WORDS[rd]}'
+
+
+def state_of(item) -> str:
+    return (item or {}).get('state') or 'ND'
+
+
+def is_active(well) -> bool:
+    """Producing or otherwise active: NDIC's code A, or the flag a Montana well carries (montana.py)."""
+    return well['active'] if 'active' in well else well.get('status') == 'A'
+
+
+def is_permit_only(well) -> bool:
+    """Permitted and not yet drilled: NDIC's code LOC, or the flag a Montana well carries."""
+    return well['permit_only'] if 'permit_only' in well else well.get('status') == 'LOC'
 
 
 def qq_position(qq):
     """(x, y) in the unit square for a quarter-quarter code; approximate placements say so."""
     code = (qq or '').replace(' ', '').upper()
+    if len(code) == 6 and all(code[i] in 'NS' and code[i + 1] in 'EW' for i in (0, 2, 4)):
+        code = code[2:]                # Montana's three-part call ("SE NW NW"): placed by its quarter-quarter and quarter
     if len(code) == 4 and code[0] in 'NS' and code[1] in 'EW' and code[2] in 'NS' and code[3] in 'EW':
         return (QUARTER_X[code[3]] + QUARTER_X[code[1]] / 2 + 0.125, QUARTER_Y[code[2]] + QUARTER_Y[code[0]] / 2 + 0.125, False)
     if len(code) == 3 and code[0] == 'C' and code[1] in 'NS' and code[2] in 'EW':
@@ -88,26 +107,35 @@ def qq_position(qq):
     return (0.5, 0.5, True)
 
 
-def new_township(t, r):
-    return {'t': t, 'r': r, 'slug': slug_of(t, r), 'short': short_name(t, r), 'title': long_name(t, r), 'wells': [],
+def new_township(t, r, td='N', rd='W', state='ND'):
+    return {'t': t, 'r': r, 'td': td, 'rd': rd, 'state': state, 'slug': slug_of(t, r, td, rd), 'short': short_name(t, r, td, rd),
+            'title': long_name(t, r, td, rd), 'wells': [],
             'sections': defaultdict(lambda: {'wells': [], 'units': []}), 'units': {}, 'operators': Counter(), 'county': None, 'county_slug': None}
 
 
-def attach(wells, units):
-    """Group wells (by legal location) and units (by land description) into townships. Returns slug -> township."""
+def attach(wells, units, prefix=''):
+    """Group wells (by legal location) and units (by land description) into townships. Returns slug -> township.
+
+    prefix goes in front of every township and county slug: a string, or a dict by state ({"ND": "nd-", "MT": "mt-"} on
+    bakkensubsurface.com/wells/, where Montana's townships share the pages). Units are North Dakota's.
+    """
+    prefixes = prefix if isinstance(prefix, dict) else {'ND': prefix, 'MT': prefix}
     townships = {}
 
-    def township(t, r):
-        slug = slug_of(t, r)
+    def township(t, r, td='N', rd='W', state='ND'):
+        slug = prefixes.get(state, '') + slug_of(t, r, td, rd)
         if slug not in townships:
-            townships[slug] = new_township(t, r)
+            townships[slug] = new_township(t, r, td, rd, state)
+            townships[slug]['slug'] = slug
         return townships[slug]
 
     for well in wells:
         legal = parse_legal(well.get('legal'))
         if not legal:
             continue
-        tw = township(legal['township'], legal['range'])
+        if state_of(well) == 'ND' and (legal['tdir'], legal['rdir']) != ('N', 'W'):
+            continue
+        tw = township(legal['township'], legal['range'], legal['tdir'], legal['rdir'], state_of(well))
         well['township'] = tw
         well['section'] = legal['section']
         well['qq'] = legal['qq']
@@ -126,12 +154,12 @@ def attach(wells, units):
     for tw in townships.values():
         counties = Counter(w['county'] for w in tw['wells'] if w.get('county'))
         tw['county'] = counties.most_common(1)[0][0] if counties else None
-        tw['county_slug'] = slugify(tw['county'] or 'unknown county')
+        tw['county_slug'] = prefixes.get(tw['state'], '') + slugify(tw['county'] or 'unknown county')
         tw['wells'].sort(key=lambda w: (w.get('section') or 0, w['display_name'], w['file']))
-    return dict(sorted(townships.items(), key=lambda item: (item[1]['t'], item[1]['r'])))
+    return dict(sorted(townships.items(), key=lambda item: (item[1]['state'] != 'ND', item[1]['td'], item[1]['t'], item[1]['rd'], item[1]['r'])))
 
 
-def grid_svg(tw, base='', cell=58, pad=4):
+def grid_svg(tw, base='', cell=58, pad=4, well_root=None):
     """The township as a 6 x 6 grid; wells as dots in their quarter-quarter, unit sections shaded."""
     size = cell * 6 + pad * 2
     parts = [f'<svg class="twpgrid" viewBox="0 0 {size} {size}" role="img" aria-label="Sections of {esc(tw["short"])} with well locations">']
@@ -153,7 +181,7 @@ def grid_svg(tw, base='', cell=58, pad=4):
         col, row = CELL[well['section']]
         fx, fy, approx = qq_position(well.get('qq'))
         cx, cy = pad + col * cell + fx * cell, pad + row * cell + fy * cell
-        dots.append(f'<a href="{base}/wells/{esc(well["slug"])}/"><circle class="{"approx" if approx else "head"} s-{esc(well["status"] or "none").lower()}" cx="{cx:.1f}" cy="{cy:.1f}" r="3.2">'
+        dots.append(f'<a href="{(well_root if well_root is not None else base + "/wells")}/{esc(well["slug"])}/"><circle class="{"approx" if approx else "head"} s-{slugify(well["status"] or "none")}" cx="{cx:.1f}" cy="{cy:.1f}" r="3.2">'
                     f'<title>{esc(well["display_name"])} · {esc(well["operator"] or "unknown operator")} · {esc(well["legal"])}</title></circle></a>')
     parts.append('<g class="heads">' + ''.join(dots) + '</g></svg>')
     return ''.join(parts)
@@ -199,9 +227,10 @@ def township_page(ctx, tw, *, shell, status_text, well_list, kpis, format_date):
     base = ctx['base_path']
     path = f'/townships/{tw["slug"]}/'
     wells = tw['wells']
-    active = sum(1 for w in wells if w['status'] == 'A')
-    permitted = sum(1 for w in wells if w['status'] == 'LOC')
-    county_label = f'{tw["county"]} County' if tw['county'] else 'North Dakota'
+    active = sum(1 for w in wells if is_active(w))
+    permitted = sum(1 for w in wells if is_permit_only(w))
+    state_name, agency = STATES[tw['state']]
+    county_label = f'{tw["county"]} County' if tw['county'] else state_name
     county_link = f'<a href="{base}/counties/{tw["county_slug"]}/">{esc(county_label)}</a>' if tw['county'] else esc(county_label)
     sections_html = ''
     for sec in sorted(tw['sections']):
@@ -237,19 +266,21 @@ def township_page(ctx, tw, *, shell, status_text, well_list, kpis, format_date):
     body = (f'<p class="eyebrow">Township · {county_link}</p><h1>{esc(tw["title"])}</h1>'
             f'<p class="lede">{esc(tw["short"])}: {len(wells):,} well records, {len(tw["units"]):,} spacing units, {len(tw["operators"]):,} operators.</p>'
             + kpis([(f'{len(wells):,}', 'wells'), (f'{active:,}', 'active'), (f'{permitted:,}', 'permitted, not drilled'), (f'{len(tw["units"]):,}', 'spacing units')])
-            + f'<div class="grid"><section class="panel"><h2>Sections</h2>{grid_svg(tw, base)}'
+            + f'<div class="grid"><section class="panel"><h2>Sections</h2>{grid_svg(tw, base, well_root=ctx.get("well_root"))}'
             '<p class="note">Schematic: sections drawn as equal squares in standard PLSS numbering; each dot is a well head placed in the quarter-quarter its published legal location names (a lot or an unparsed description sits at the section centre). Shaded sections lie in a spacing unit. Click a section or a dot.</p></section>'
             f'<section class="panel"><h2>Operators</h2><ul class="plain">{ops_html or "<li>No wells recorded</li>"}</ul></section></div>'
             f'<section class="panel"><h2>Wells and units by section</h2>{sections_html or "<p class=note>No wells or units recorded.</p>"}</section>'
             f'{units_html}{orders_html}'
-            f'<p class="note">Legal locations as published by NDIC in the wells layer; a horizontal well\'s lateral can run into other sections. Township and range are north and west throughout North Dakota.</p>')
-    description = (f'{tw["title"]} ({tw["short"]}), {county_label}, North Dakota: {len(wells):,} well records, {len(tw["units"]):,} spacing units, '
+            + (f'<p class="note">Legal locations as published by NDIC in the wells layer; a horizontal well\'s lateral can run into other sections. Township and range are north and west throughout North Dakota.</p>'
+               if tw['state'] == 'ND' else
+               f'<p class="note">Legal locations as published in the well list of {agency}; a horizontal well\'s lateral can run into other sections. Montana townships run north or south of the baseline and ranges east or west of the principal meridian.</p>'))
+    description = (f'{tw["title"]} ({tw["short"]}), {county_label}, {state_name}: {len(wells):,} well records, {len(tw["units"]):,} spacing units, '
                    f'{len(tw["operators"]):,} operators, with every well placed in its section.')
     jsonld = [{'@context': 'https://schema.org', '@type': 'BreadcrumbList', 'itemListElement': [
         {'@type': 'ListItem', 'position': 1, 'name': 'Wells', 'item': ctx['base_url'] + '/'},
         {'@type': 'ListItem', 'position': 2, 'name': 'Townships', 'item': ctx['base_url'] + '/townships/'},
         {'@type': 'ListItem', 'position': 3, 'name': tw['short'], 'item': ctx['base_url'] + path}]}]
-    return shell(ctx, title=f'{tw["short"]} · {tw["title"]} · {county_label}, ND', description=description, path=path, body=body,
+    return shell(ctx, title=f'{tw["short"]} · {tw["title"]} · {county_label}, {tw["state"]}', description=description, path=path, body=body,
                  crumbs=[('Wells', f'{base}/'), ('Townships', f'{base}/townships/'), (tw['short'], None)], jsonld=jsonld, current='townships')
 
 
@@ -257,17 +288,20 @@ def townships_index_page(ctx, townships, *, shell):
     base = ctx['base_path']
     by_county = defaultdict(list)
     for tw in townships.values():
-        by_county[tw['county'] or 'County not recorded'].append(tw)
+        by_county[(tw['state'], tw['county'] or 'County not recorded')].append(tw)
+    states = sorted({state for state, _ in by_county}, key=lambda s: s != 'ND')
     sections = ''
-    for county in sorted(by_county, key=lambda c: (c == 'County not recorded', c)):
+    for state, county in sorted(by_county, key=lambda c: (c[0] != 'ND', c[1] == 'County not recorded', c[1])):
         items = ''.join(f'<li><a href="{base}/townships/{tw["slug"]}/">{esc(tw["short"])}</a> <small>{len(tw["wells"]):,} wells'
-                        + (f' · {len(tw["units"]):,} units' if tw['units'] else '') + '</small></li>' for tw in by_county[county])
-        slug = slugify(county)
-        sections += f'<section class="panel" id="{slug}"><h2>{esc(county)}{" County" if county != "County not recorded" else ""}</h2><ul class="plain long">{items}</ul></section>'
+                        + (f' · {len(tw["units"]):,} units' if tw['units'] else '') + '</small></li>' for tw in by_county[(state, county)])
+        slug = (state.lower() + '-' if len(states) > 1 else '') + slugify(county)
+        label = f'{esc(county)}{" County" if county != "County not recorded" else ""}' + (f', {state}' if len(states) > 1 else '')
+        sections += f'<section class="panel" id="{slug}"><h2>{label}</h2><ul class="plain long">{items}</ul></section>'
     total_wells = sum(len(tw['wells']) for tw in townships.values())
+    names = ' and '.join(STATES[s][0] for s in states)
     body = (f'<h1>Townships</h1><p class="lede">{len(townships):,} townships with well records or spacing units, by county. '
             'Each page places every well in its section and lists the spacing units and orders on that land.</p>' + sections)
-    return shell(ctx, title='Townships · North Dakota wells', description=f'{len(townships):,} North Dakota townships with {total_wells:,} well records, each with a section grid, its wells, spacing units and orders.',
+    return shell(ctx, title=f'Townships · {names} wells', description=f'{len(townships):,} {names} townships with {total_wells:,} well records, each with a section grid, its wells, spacing units and orders.',
                  path='/townships/', body=body, crumbs=[('Wells', f'{base}/'), ('Townships', None)], current='townships')
 
 

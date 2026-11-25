@@ -165,7 +165,7 @@ def attach(wells, data):
 # ----------------------------------------------------------------------------- map
 
 
-def unit_svg(unit, base='', width=360, height=260):
+def unit_svg(unit, base='', width=360, height=260, well_root=None):
     """Inline SVG: the unit outline, the surface locations of its wells, a one-mile bar."""
     rings = unit.get('rings') or []
     if not rings:
@@ -195,7 +195,7 @@ def unit_svg(unit, base='', width=360, height=260):
     for lon, lat, well in heads[:40]:
         x, y = pt(lon, lat)
         label = esc(well['display_name'])
-        dots += (f'<a href="{base}/wells/{esc(well["slug"])}/"><circle cx="{x:.1f}" cy="{y:.1f}" r="4"><title>{label}</title></circle></a>')
+        dots += (f'<a href="{(well_root if well_root is not None else base + "/wells")}/{esc(well["slug"])}/"><circle cx="{x:.1f}" cy="{y:.1f}" r="4"><title>{label}</title></circle></a>')
     mile = scale * (1 / 69.0)   # one mile of latitude in px
     bar = f'<g class="bar"><line x1="{pad}" y1="{height - 8}" x2="{pad + mile:.1f}" y2="{height - 8}"/><text x="{pad + mile / 2:.1f}" y="{height - 12}" text-anchor="middle">1 mi</text></g>' if 20 < mile < width else ''
     return (f'<svg class="unitmap" viewBox="0 0 {width} {height}" role="img" aria-label="Outline of the spacing unit with the surface locations of its wells">'
@@ -268,7 +268,7 @@ def unit_page(ctx, unit, *, shell, status_text):
                      f'under a larger unit shows only what the larger one left. <a href="{MAIN_SITE}/room-to-drill/" rel="noopener">How it is computed</a>.</p>')
 
     wells_rows = ''.join(
-        f'<tr><td><a href="{base}/wells/{esc(m["well"]["slug"])}/">{esc(m["well"]["display_name"])}</a></td>'
+        f'<tr><td><a href="{ctx.get("well_root", base + "/wells")}/{esc(m["well"]["slug"])}/">{esc(m["well"]["display_name"])}</a></td>'
         f'<td>{esc(m["well"]["operator"] or "")}</td><td>{esc(status_text(m["well"]["status"]))}</td>'
         f'<td class="num">{m["insideFt"]:,} ft<small>{m["fraction"] * 100:.0f}%</small></td></tr>'
         for m in sorted(unit['members'], key=lambda m: (-m['insideFt'], m['well']['display_name'])))
@@ -304,7 +304,7 @@ def unit_page(ctx, unit, *, shell, status_text):
     cases = cases_map_link(unit)
     if cases:
         links.append(f'<a class="btn" href="{esc(cases)}" rel="noopener">See on the cases and orders map<small>Historical spacing units by order</small></a>')
-    map_html = unit_svg(unit, base)
+    map_html = unit_svg(unit, base, well_root=ctx.get('well_root'))
     body = (
         f'<p class="eyebrow">Spacing unit · {esc(county_label)}</p><h1>{esc(unit["title"])}</h1>'
         f'<p class="lede">{esc(unit["where"])}</p><div class="badges">{"".join(badges)}</div>'

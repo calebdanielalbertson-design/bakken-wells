@@ -135,8 +135,15 @@ jobs:
           else
             echo "::warning::No well-production asset; building without production panels"
           fi
+          # Montana (only for bakkensubsurface.com/wells/): every well in the Montana Board's well list, built by the
+          # pipeline's explorer/prepare_montana_well_index.py from the Board's free files and uploaded by hand.
+          montana=""
+          if [ "${{ vars.WELLS_KV }}" = "on" ] && gh release download well-index-data --repo "$GITHUB_REPOSITORY" --pattern 'montana-well-index.json.gz' --dir work/data; then
+            montana="--montana work/data/montana-well-index.json.gz"
+          fi
           ls -l work/data || true
           echo "args=${args# }" >> "$GITHUB_OUTPUT"
+          echo "montana=$montana" >> "$GITHUB_OUTPUT"
 
       # On the daily schedule only: stop here when DMR's archives, the unit data and the generator
       # are the ones the live site was built from. Pushes and manual runs always build and deploy.
@@ -189,6 +196,30 @@ jobs:
           path: ${{ runner.temp }}/artifact.tar
           retention-days: 1
           if-no-files-found: error
+
+      # bakkensubsurface.com/wells/, switched on by the repository variable WELLS_KV = "on": the same
+      # pages built for the site's Worker (--layout site) and sent to its Workers KV namespace. Only the
+      # keys whose content changed are sent; publish_kv.py keeps a manifest of the last publish in KV.
+      # Needs the variables CLOUDFLARE_ACCOUNT_ID and WELLS_KV_NAMESPACE_ID and the secret
+      # CLOUDFLARE_KV_TOKEN (an API token with Workers KV Storage write on that account).
+      - name: Build the pages for bakkensubsurface.com/wells/
+        id: site
+        if: vars.WELLS_KV == 'on' && steps.hours.outputs.defer != 'true' && steps.changed.outputs.unchanged != 'true'
+        run: |
+          python scripts/wells/build_well_pages.py \
+            --source work/dmr \
+            --out work/wells-kv-site \
+            --base-url https://bakkensubsurface.com/wells \
+            --layout site \
+            --generator "$GITHUB_SHA" ${{ steps.data.outputs.args }} ${{ steps.data.outputs.montana }}
+
+      - name: Publish to Workers KV
+        if: steps.site.outcome == 'success' && github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.deploy)
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          WELLS_KV_NAMESPACE_ID: ${{ vars.WELLS_KV_NAMESPACE_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_KV_TOKEN }}
+        run: python scripts/wells/publish_kv.py --site work/wells-kv-site --kv --summary "$GITHUB_STEP_SUMMARY"
 
   deploy:
     name: Deploy to GitHub Pages

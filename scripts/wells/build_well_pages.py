@@ -36,6 +36,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from wells import montana as mtw  # noqa: E402
 from wells import production as prod  # noqa: E402
 from wells import townships as tws  # noqa: E402
 from wells import units as dsu  # noqa: E402
@@ -49,6 +50,7 @@ VIEWER_URL = MAIN_SITE + '/viewer/?dataset=full&well={file}'
 VIEWER_3D_URL = MAIN_SITE + '/3d/'
 DMR_PAGE = 'https://gis.dmr.nd.gov/gisdownload.asp'
 WELLS_PER_SITEMAP = 10000
+LAYOUTS = ('pages', 'site')
 NEARBY_MILES = 3.0
 NEARBY_LIMIT = 8
 
@@ -328,7 +330,7 @@ def load_sources(source: Path, limit=None):
 def assign_slugs(wells):
     seen = set()
     for well in wells:
-        base = format_api(well['api']) if well['api'] and well['api'].startswith('33') else f'file-{well["file"]}'
+        base = format_api(well['api']) if well['api'] and well['api'][:2] in ('33', '25') else f'file-{well["file"]}'
         slug = base
         if slug in seen:
             slug = f'{base}-{well["file"]}'
@@ -382,13 +384,16 @@ def group_operators(wells):
     return operators
 
 
-def group_counties(wells):
+def group_counties(wells, prefix=''):
+    """prefix: a string, or a dict by state ({'ND': 'nd-', 'MT': 'mt-'}): both states have a Richland and a Sheridan County."""
+    prefixes = prefix if isinstance(prefix, dict) else {'ND': prefix, 'MT': prefix}
     counties = {}
     for w in wells:
         name = w['county'] or 'Unknown county'
-        key = slugify(name)
+        state = w.get('state') or 'ND'
+        key = prefixes.get(state, '') + slugify(name)
         w['county_slug'] = key
-        entry = counties.setdefault(key, {'slug': key, 'name': name, 'wells': [], 'operators': Counter(), 'statuses': Counter()})
+        entry = counties.setdefault(key, {'slug': key, 'name': name, 'state': state, 'wells': [], 'operators': Counter(), 'statuses': Counter()})
         entry['wells'].append(w)
         entry['operators'][w['operator_slug']] += 1
         entry['statuses'][w['status'] or '—'] += 1
@@ -398,7 +403,32 @@ def group_counties(wells):
 # ----------------------------------------------------------------------------- html
 
 
+STATE_NAMES = {'ND': 'North Dakota', 'MT': 'Montana'}
+
+
+def states_of(wells) -> list[str]:
+    found = {w.get('state') or 'ND' for w in wells}
+    return [s for s in ('ND', 'MT') if s in found]
+
+
+def state_words(states) -> str:
+    return ' and '.join(STATE_NAMES[s] for s in states)
+
+
+def county_title(county, both=False) -> str:
+    """'McKenzie County', or 'Richland County, MT' when the build holds both states (both have a Richland County)."""
+    name = county['name'] if isinstance(county, dict) else county
+    state = (county.get('state') if isinstance(county, dict) else None) or 'ND'
+    return (name if name.startswith('Unknown') else f'{name} County') + (f', {state}' if both else '')
+
+
+def is_plugged(well) -> bool:
+    return well['plugged'] if 'plugged' in well else well['status'] in ('PA', 'AB')
+
+
 def status_text(code):
+    if code and not code.isupper():
+        return code                    # Montana's statuses are words already ("Producing", "P&A - Approved")
     gloss = CODES['status'].get(code)
     return f'{gloss} ({code})' if gloss else (code or 'Status not published')
 
@@ -416,7 +446,7 @@ def format_number(value, unit=''):
     return f'{text}{unit}'
 
 
-def shell(ctx, *, title, description, path, body, crumbs=None, jsonld=None, robots=None, current=None):
+def shell(ctx, *, title, description, path, body, crumbs=None, jsonld=None, robots=None, current=None, sources=None):
     base = ctx['base_path']
     canonical = ctx['base_url'] + path
     nav = [('/', 'Find a well', 'search'), ('/operators/', 'Operators', 'operators'), ('/counties/', 'Counties', 'counties'),
@@ -432,6 +462,27 @@ def shell(ctx, *, title, description, path, body, crumbs=None, jsonld=None, robo
     if jsonld:
         ld = '<script type="application/ld+json">' + json.dumps(jsonld, ensure_ascii=False, separators=(',', ':')).replace('</', '<\\/') + '</script>'
     robots_meta = f'<meta name="robots" content="{robots}">' if robots else ''
+    if ctx.get('layout') == 'site':
+        # Served from Workers KV by the bakkensubsurface.com Worker, which swaps the two markers for the
+        # site's own header and footer (bakken-site worker/wells.js; contract in Bakken HQ/wells/kv-contract.md).
+        sources = sources or (f'<p>Well records: {esc(ctx["attribution"])}, public GIS download retrieved {esc(ctx["source_date"])}. '
+                   'NDIC codes are shown with our plain-language reading. Locations are published well heads; laterals can run miles from them. Independent project, not affiliated with NDIC.</p>'
+                   f'<p><a href="{DMR_PAGE}" rel="noopener">Source data</a> · <a href="/methodology/">Methodology</a> · <a href="https://github.com/calebdanielalbertson-design/bakken-wells" rel="noopener">Code</a> · built {esc(ctx["built"])}</p>')
+        return (
+            '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            f'<title>{esc(title)}</title><meta name="description" content="{esc(description)}">'
+            f'<link rel="canonical" href="{esc(canonical)}">{robots_meta}'
+            '<meta property="og:type" content="website"><meta property="og:site_name" content="Bakken Subsurface Analytics">'
+            f'<meta property="og:title" content="{esc(title)}"><meta property="og:description" content="{esc(description)}"><meta property="og:url" content="{esc(canonical)}">'
+            '<meta name="theme-color" content="#20262b"><link rel="icon" type="image/svg+xml" href="/assets/brand-mark.svg">'
+            f'<link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/brand.css"><link rel="stylesheet" href="{base}/assets/well.css">{ld}</head>'
+            '<body class="brand-site wells-page"><a class="skip-link" href="#main">Skip to content</a>\n<!--site-header-->\n'
+            f'<main id="main" class="wells-main"><div class="wrap"><nav class="wells-nav" aria-label="Find a well">{nav_html}</nav>{crumb_html}{body}</div>'
+            f'<div class="wells-sources"><div class="wrap">{sources}</div></div></main>\n<!--site-footer-->\n'
+            # the not-found page is served at any missing address, so it must not count as a visit to the well pages
+            + ('' if path == '/404.html' else '<script defer src="/visitor-counts.js"></script>') + '</body></html>'
+        )
     # Google Search Console ownership proof for the URL-prefix property (HTML tag method); public by nature
     verification = f'<meta name="google-site-verification" content="{esc(ctx["site_verification"])}">' if ctx.get('site_verification') else ''
     return (
@@ -456,7 +507,7 @@ def shell(ctx, *, title, description, path, body, crumbs=None, jsonld=None, robo
 
 def well_page(ctx, w):
     base = ctx['base_path']
-    path = f'/wells/{w["slug"]}/'
+    path = f'{ctx["well_dir"]}/{w["slug"]}/'
     api_text = w['api_display'] or (format_api(w['api_full']) if w['api_full'] else '—')
     county_label = f'{w["county"]} County' if w['county'] else 'North Dakota'
     type_gloss = CODES['type'].get(w['type'])
@@ -502,34 +553,47 @@ def well_page(ctx, w):
     elif 'permits' in w.get('layers', ()):
         badges.append('<span class="badge neutral">In NDIC\'s permit-status layer</span>')
 
+    location_html = location_panel(w)
+    viewer_html = (
+        f'<h2>See it in 3D</h2><div class="actions"><a class="btn" href="{VIEWER_URL.format(file=w["file"])}" rel="noopener">Open in the regional 3D viewer<small>Surveyed well path, operator and production; Bakken-system horizontals only</small></a>'
+        f'<a class="btn" href="{VIEWER_3D_URL}" rel="noopener">Bakken Subsurface 3D<small>Basin-wide production playback</small></a></div>')
+    nearby_html = nearby_panel(ctx, w)
+    attr_rows = ''.join(f'<tr><th>{esc(key)}</th><td>{esc(value)}</td></tr>' for key, value in sorted(w['attributes'].items()))
+    attributes_html = (f'<details><summary>Other published attributes ({len(w["attributes"])})</summary>'
+                       f'<table class="attrs"><tbody>{attr_rows}</tbody></table><p class="note">DMR shapefile columns not shown above, unchanged.</p></details>') if w['attributes'] else ''
+    return well_page_rest(ctx, w, path=path, api_text=api_text, county_label=county_label, description=description, title=title,
+                          facts_html=facts_html, badges=badges, location_html=location_html, viewer_html=viewer_html,
+                          nearby_html=nearby_html, attributes_html=attributes_html)
+
+
+def location_panel(w):
+    agency = 'the Board' if w.get('state') == 'MT' else 'NDIC'
     if w['lat'] is not None:
         lat, lon = f'{w["lat"]:.5f}', f'{w["lon"]:.5f}'
         q = esc(w['display_name'])
-        location_html = (
+        return (
             f'<div class="actions"><a class="btn primary" href="https://www.google.com/maps/dir/?api=1&amp;destination={lat},{lon}" rel="noopener">Navigate with Google Maps<small>Driving directions to the well head</small></a>'
             f'<a class="btn" href="https://www.google.com/maps/search/?api=1&amp;query={lat},{lon}" rel="noopener">Open in Google Maps<small>Satellite view of the pad</small></a>'
             f'<a class="btn" href="https://maps.apple.com/?daddr={lat},{lon}&amp;q={q}" rel="noopener">Open in Apple Maps</a></div>'
             f'<p class="coords"><code>{lat}, {lon}</code><button class="copy" type="button" data-copy="{lat}, {lon}">Copy coordinates</button></p>'
             '<p class="note">Published surface location (NAD83). A horizontal well\'s lateral can run up to three miles from this point.</p>')
-    else:
-        location_html = '<p class="note">NDIC has not published coordinates for this record, so map links are unavailable.</p>'
-    viewer_html = (
-        f'<h2>See it in 3D</h2><div class="actions"><a class="btn" href="{VIEWER_URL.format(file=w["file"])}" rel="noopener">Open in the regional 3D viewer<small>Surveyed well path, operator and production; Bakken-system horizontals only</small></a>'
-        f'<a class="btn" href="{VIEWER_3D_URL}" rel="noopener">Bakken Subsurface 3D<small>Basin-wide production playback</small></a></div>')
+    return f'<p class="note">{agency} has not published coordinates for this record, so map links are unavailable.</p>'
 
+
+def nearby_panel(ctx, w):
     if w['nearby']:
         items = []
         for miles, other in w['nearby']:
             dist = f'{miles * 5280:,.0f} ft' if miles < 0.25 else f'{miles:.1f} mi'
-            items.append(f'<li><a href="{base}/wells/{other["slug"]}/">{esc(other["display_name"])}<small>{esc(other["operator"] or "Unknown operator")} · {esc(status_text(other["status"]))}</small></a><span class="dist">{dist}</span></li>')
-        nearby_html = f'<section class="panel"><h2>Nearby wells</h2><ul class="nearby">{"".join(items)}</ul><p class="note">Closest published well heads within {NEARBY_MILES:g} miles; wells on one pad share a location.</p></section>'
-    else:
-        nearby_html = ''
+            other_state = ' · Montana' if other.get('state') == 'MT' and w.get('state') != 'MT' else (' · North Dakota' if w.get('state') == 'MT' and other.get('state') != 'MT' else '')
+            items.append(f'<li><a href="{ctx["well_root"]}/{other["slug"]}/">{esc(other["display_name"])}<small>{esc(other["operator"] or "Unknown operator")} · {esc(status_text(other["status"]))}{other_state}</small></a><span class="dist">{dist}</span></li>')
+        return f'<section class="panel"><h2>Nearby wells</h2><ul class="nearby">{"".join(items)}</ul><p class="note">Closest published well heads within {NEARBY_MILES:g} miles; wells on one pad share a location.</p></section>'
+    return ''
 
-    attr_rows = ''.join(f'<tr><th>{esc(key)}</th><td>{esc(value)}</td></tr>' for key, value in sorted(w['attributes'].items()))
-    attributes_html = (f'<details><summary>Other published attributes ({len(w["attributes"])})</summary>'
-                       f'<table class="attrs"><tbody>{attr_rows}</tbody></table><p class="note">DMR shapefile columns not shown above, unchanged.</p></details>') if w['attributes'] else ''
 
+def well_page_rest(ctx, w, *, path, api_text, county_label, description, title, facts_html, badges, location_html, viewer_html, nearby_html, attributes_html):
+    base = ctx['base_path']
+    type_gloss = CODES['type'].get(w['type'])
     body = (
         f'<p class="eyebrow">NDIC file {esc(w["file"])} · API {esc(api_text)}</p><h1>{esc(w["display_name"])}</h1>'
         f'<p class="lede">Operated by <b>{esc(w["operator"] or "an unlisted operator")}</b> · {esc(county_label)}, North Dakota</p>'
@@ -563,7 +627,7 @@ def well_list(ctx, wells, with_operator=False):
     items = []
     for w in sorted(wells, key=lambda x: (x['display_name'], x['file'])):
         detail = f'{w["operator"]} · ' if with_operator and w['operator'] else ''
-        items.append(f'<li><a href="{base}/wells/{w["slug"]}/">{esc(w["display_name"])}</a> <small>{esc(detail)}{esc(status_text(w["status"]))}</small></li>')
+        items.append(f'<li><a href="{ctx["well_root"]}/{w["slug"]}/">{esc(w["display_name"])}</a> <small>{esc(detail)}{esc(status_text(w["status"]))}</small></li>')
     return f'<ul class="plain">{"".join(items)}</ul>'
 
 
@@ -575,21 +639,24 @@ def operator_page(ctx, op):
     base = ctx['base_path']
     path = f'/operators/{op["slug"]}/'
     wells = op['wells']
-    active = sum(1 for w in wells if w['status'] == 'A')
-    plugged = sum(1 for w in wells if w['status'] in ('PA', 'AB'))
-    permitted = sum(1 for w in wells if w['status'] == 'LOC')
+    active = sum(1 for w in wells if tws.is_active(w))
+    plugged = sum(1 for w in wells if is_plugged(w))
+    permitted = sum(1 for w in wells if tws.is_permit_only(w))
+    both = len(ctx.get('states') or ()) > 1
     by_county = defaultdict(list)
     for w in wells:
-        by_county[(w['county'] or 'Unknown county', w['county_slug'])].append(w)
+        by_county[(county_title({'name': w['county'] or 'Unknown county', 'state': w.get('state')}, both), w['county_slug'])].append(w)
     sections = ''.join(
         f'<section class="panel"><h2><a href="{base}/counties/{slug}/">{esc(county)}</a> <small class="mono">{len(group):,}</small></h2>{well_list(ctx, group)}</section>'
         for (county, slug), group in sorted(by_county.items(), key=lambda item: (-len(item[1]), item[0])))
+    mine = states_of(wells)
+    where = 'the NDIC wells layer' if mine == ['ND'] else ('the Montana Board\'s well list' if mine == ['MT'] else 'the NDIC wells layer and the Montana Board\'s well list')
     body = (f'<p class="eyebrow">Operator</p><h1>{esc(op["name"])}</h1>'
-            f'<p class="lede">{len(wells):,} well records in the NDIC wells layer, as published under this operator name.</p>'
+            f'<p class="lede">{len(wells):,} well records in {where}, as published under this operator name.</p>'
             + kpis([(f'{len(wells):,}', 'wells'), (f'{active:,}', 'active'), (f'{plugged:,}', 'plugged or abandoned'), (f'{permitted:,}', 'permitted, not drilled'), (f'{len(by_county):,}', 'counties')])
             + f'<div class="grid" style="grid-template-columns:1fr">{sections}</div>')
-    description = f'{op["name"]}: {len(wells):,} North Dakota well records ({active:,} active) across {len(by_county)} counties, with a page for every well.'
-    return shell(ctx, title=f'{op["name"]} · wells in North Dakota', description=description, path=path, body=body,
+    description = f'{op["name"]}: {len(wells):,} {state_words(mine)} well records ({active:,} active) across {len(by_county)} counties, with a page for every well.'
+    return shell(ctx, title=f'{op["name"]} · wells in {state_words(mine)}', description=description, path=path, body=body,
                  crumbs=[('Wells', f'{base}/'), ('Operators', f'{base}/operators/'), (op['name'], None)], current='operators')
 
 
@@ -597,21 +664,22 @@ def county_page(ctx, county, operators, townships=None):
     base = ctx['base_path']
     path = f'/counties/{county["slug"]}/'
     wells = county['wells']
-    active = sum(1 for w in wells if w['status'] == 'A')
-    permitted = [w for w in wells if w['status'] == 'LOC']
+    active = sum(1 for w in wells if tws.is_active(w))
+    permitted = [w for w in wells if tws.is_permit_only(w)]
+    state_name = STATE_NAMES[county.get('state') or 'ND']
     recent = sorted((w for w in wells if 'spud' in w['extras']), key=lambda w: w['extras']['spud'], reverse=True)[:100]
     ops = ''.join(f'<li><a href="{base}/operators/{slug}/">{esc(operators[slug]["name"])}</a> <small>{count:,}</small></li>'
                   for slug, count in county['operators'].most_common())
     body = (f'<p class="eyebrow">County</p><h1>{esc(county["name"])}</h1>'
-            f'<p class="lede">{len(wells):,} well records in {esc(county["name"])}, North Dakota.</p>'
+            f'<p class="lede">{len(wells):,} well records in {esc(county["name"])}, {state_name}.</p>'
             + kpis([(f'{len(wells):,}', 'wells'), (f'{active:,}', 'active'), (f'{len(permitted):,}', 'permitted, not drilled'), (f'{len(county["operators"]):,}', 'operators')])
             + f'<div class="cols"><section class="panel"><h2>Operators</h2><ul class="plain">{ops}</ul></section>'
             + tws.county_townships_panel(ctx, county['slug'], townships or {})
             + (f'<section class="panel"><h2>Most recently spud</h2>{well_list(ctx, recent, with_operator=True)}</section>' if recent else '')
             + (f'<section class="panel"><h2>Permitted locations not yet drilled</h2>{well_list(ctx, permitted[:200], with_operator=True)}</section>' if permitted else '')
             + '</div><p class="note">Every well in this county has its own page; use the search or an operator page to reach the rest.</p>')
-    description = f'{county["name"]}, North Dakota: {len(wells):,} well records, {active:,} active, {len(permitted):,} permitted locations, with operators and a page for every well.'
-    return shell(ctx, title=f'{county["name"]} · wells in North Dakota', description=description, path=path, body=body,
+    description = f'{county["name"]}, {state_name}: {len(wells):,} well records, {active:,} active, {len(permitted):,} permitted locations, with operators and a page for every well.'
+    return shell(ctx, title=f'{county["name"]} · wells in {state_name}', description=description, path=path, body=body,
                  crumbs=[('Wells', f'{base}/'), ('Counties', f'{base}/counties/'), (county['name'], None)], current='counties')
 
 
@@ -619,24 +687,33 @@ def index_pages(ctx, operators, counties, totals):
     base = ctx['base_path']
     op_items = ''.join(f'<li><a href="{base}/operators/{op["slug"]}/">{esc(op["name"])}</a> <small>{len(op["wells"]):,}</small></li>'
                        for op in sorted(operators.values(), key=lambda o: (-len(o['wells']), o['name'])))
-    co_items = ''.join(f'<li><a href="{base}/counties/{c["slug"]}/">{esc(c["name"])}</a> <small>{len(c["wells"]):,}</small></li>'
+    states = ctx.get('states') or ['ND']
+    both, words = len(states) > 1, state_words(states)
+    co_items = ''.join(f'<li><a href="{base}/counties/{c["slug"]}/">{esc(c["name"] + (", " + c.get("state", "ND") if both else ""))}</a> <small>{len(c["wells"]):,}</small></li>'
                        for c in sorted(counties.values(), key=lambda c: (-len(c['wells']), c['name'])))
-    operators_html = shell(ctx, title='Operators · North Dakota wells', description=f'Every operator in the NDIC wells layer ({len(operators):,}), ranked by well count, each with a page listing its wells.',
-                           path='/operators/', body=f'<h1>Operators</h1><p class="lede">{len(operators):,} operator names as published by NDIC, ranked by well count.</p><ul class="plain">{op_items}</ul>',
+    publisher = 'NDIC' if not both else 'NDIC and the Montana Board'
+    operators_html = shell(ctx, title=f'Operators · {words} wells', description=f'Every operator in the {words} well lists ({len(operators):,}), ranked by well count, each with a page listing its wells.',
+                           path='/operators/', body=f'<h1>Operators</h1><p class="lede">{len(operators):,} operator names as published by {publisher}, ranked by well count.</p><ul class="plain">{op_items}</ul>',
                            crumbs=[('Wells', f'{base}/'), ('Operators', None)], current='operators')
-    counties_html = shell(ctx, title='Counties · North Dakota wells', description=f'North Dakota counties with well records ({len(counties):,}), each with operators, recent spuds and permitted locations.',
+    counties_html = shell(ctx, title=f'Counties · {words} wells', description=f'{words} counties with well records ({len(counties):,}), each with operators, recent spuds and permitted locations.',
                           path='/counties/', body=f'<h1>Counties</h1><p class="lede">Well records by county.</p><ul class="plain">{co_items}</ul>',
                           crumbs=[('Wells', f'{base}/'), ('Counties', None)], current='counties')
     top_ops = ''.join(f'<li><a href="{base}/operators/{op["slug"]}/">{esc(op["name"])}</a> <small>{len(op["wells"]):,}</small></li>'
                       for op in sorted(operators.values(), key=lambda o: (-len(o['wells']), o['name']))[:24])
     search_body = (
-        '<p class="eyebrow">North Dakota well index</p><h1>Find any North Dakota well.</h1>'
-        f'<p class="lede">Every well record NDIC publishes, {totals["wells"]:,} of them, each with its own page: operator, status, location, map directions and nearby wells.</p>'
-        '<form class="search" role="search" onsubmit="return false"><label class="eyebrow" for="q">Search</label>'
-        '<input id="q" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Well name, API number or NDIC file number" disabled></form>'
-        '<p class="hint">Try <code>Hawkinson 1-21H</code>, an API like <code>33-053-04567</code>, or a file number like <code>21994</code>. Spelling does not have to be exact.</p>'
+        (f'<p class="eyebrow">{words} well index</p><h1>Find any well in North Dakota or Montana.</h1>'
+           f'<p class="lede">Every well record NDIC and the Montana Board publish, {totals["wells"]:,} of them ({totals.get("ND", 0):,} in North Dakota, {totals.get("MT", 0):,} in Montana), '
+           'each with its own page: operator, status, location, map directions, production and nearby wells.</p>'
+           if both else
+           '<p class="eyebrow">North Dakota well index</p><h1>Find any North Dakota well.</h1>'
+           f'<p class="lede">Every well record NDIC publishes, {totals["wells"]:,} of them, each with its own page: operator, status, location, map directions and nearby wells.</p>')
+        + '<form class="search" role="search" onsubmit="return false"><label class="eyebrow" for="q">Search</label>'
+        f'<input id="q" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Well name, API number{" or North Dakota file number" if both else " or NDIC file number"}" disabled></form>'
+        '<p class="hint">Try <code>Hawkinson 1-21H</code>, an API like <code>33-053-04567</code>'
+        + (' or <code>25-083-22812</code> (Montana)' if both else '') + ', or a file number like <code>21994</code>. Spelling does not have to be exact.</p>'
         '<p class="status" id="status" role="status" aria-live="polite">Loading the well index…</p><ol class="results" id="results"></ol>'
-        + kpis([(f'{totals["wells"]:,}', 'wells'), (f'{totals["operators"]:,}', 'operators'), (f'{totals["counties"]:,}', 'counties'), (esc(ctx['source_date']), 'NDIC snapshot')])
+        + kpis([(f'{totals["wells"]:,}', 'wells'), (f'{totals["operators"]:,}', 'operators'), (f'{totals["counties"]:,}', 'counties'), (esc(ctx['source_date']), 'NDIC snapshot')]
+               + ([(esc((ctx.get('montana_source') or {}).get('retrieved') or ''), 'Montana Board files')] if both else []))
         + f'<div class="cols"><section class="panel"><h2>Largest operators</h2><ul class="plain">{top_ops}</ul><p class="note"><a href="{base}/operators/">All operators</a></p></section>'
         f'<section class="panel"><h2>Counties</h2><ul class="plain">{co_items}</ul></section></div>'
         + (f'<section class="panel" style="margin-top:16px"><h2>Spacing units and orders</h2>'
@@ -648,13 +725,13 @@ def index_pages(ctx, operators, counties, totals):
         f'Each page carries the published surface location with one-tap directions, and links into the <a href="{MAIN_SITE}/viewer/?dataset=full">regional 3D viewer</a> for wells with surveyed paths.</p>'
         f'<p class="note">Part of <a href="{MAIN_SITE}/">Bakken Subsurface</a>. Not affiliated with NDIC. Read the <a href="{MAIN_SITE}/methodology/">methodology</a>.</p></section>'
         f'<script type="module">import {{mountSearch}} from "{base}/assets/search.js";'
-        f'const status=document.getElementById("status");try{{const response=await fetch("{base}/wells/index.json");if(!response.ok)throw new Error("HTTP "+response.status);'
-        'mountSearch({input:document.getElementById("q"),results:document.getElementById("results"),status,base:' + json.dumps(base) + ',index:await response.json()});}'
+        f'const status=document.getElementById("status");try{{const response=await fetch("{ctx["well_root"]}/index.json");if(!response.ok)throw new Error("HTTP "+response.status);'
+        'mountSearch({input:document.getElementById("q"),results:document.getElementById("results"),status,base:' + json.dumps(base) + ',wellRoot:' + json.dumps(ctx['well_root']) + ',townshipPrefix:' + json.dumps(ctx['prefix']) + ',index:await response.json()});}'
         'catch(error){status.textContent="The search index could not be loaded ("+error.message+"). Operator and county pages still work.";}</script>'
     )
-    search_html = shell(ctx, title='Find a North Dakota well · Bakken Subsurface', path='/', body=search_body, current='search',
-                        description=f'Search {totals["wells"]:,} North Dakota wells by name, API or NDIC file number. Each well has a page with operator, status, location, map directions and nearby wells.')
-    not_found = shell(ctx, title='Page not found · North Dakota well index', description='This well page does not exist.', path='/404.html', robots='noindex',
+    search_html = shell(ctx, title=('Find a well in North Dakota or Montana · Bakken Subsurface' if both else 'Find a North Dakota well · Bakken Subsurface'), path='/', body=search_body, current='search',
+                        description=f'Search {totals["wells"]:,} {words} wells by name, API or file number. Each well has a page with operator, status, location, map directions and nearby wells.')
+    not_found = shell(ctx, title=f'Page not found · {words} well index', description='This well page does not exist.', path='/404.html', robots='noindex',
                       body=f'<h1>No page here.</h1><p class="lede">The well you are looking for may have a different API number. <a href="{base}/">Search the index</a>.</p>')
     return search_html, operators_html, counties_html, not_found
 
@@ -673,15 +750,29 @@ def sitemap_urlset(entries):
 
 
 def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path | None = None, data: Path | None = None, generator: str | None = None,
-          site_verification: str | None = None, production: Path | None = None):
+          site_verification: str | None = None, production: Path | None = None, layout: str = 'pages', montana: Path | None = None):
     started = datetime.now(timezone.utc)
     wells, report = load_sources(source, limit=limit)
     if not wells:
         raise BuildError('No wells read from the source')
+    if layout not in LAYOUTS:
+        raise BuildError(f'Unknown layout {layout!r}; choose one of {", ".join(LAYOUTS)}')
+    site = layout == 'site'
+    prefix = {'ND': 'nd-', 'MT': 'mt-'} if site else ''
+    mt_data = None
+    if montana:
+        if not site:
+            raise BuildError('Montana wells (--montana) go only into the site layout (--layout site)')
+        mt_data = mtw.load(montana)
+        nd_count = len(wells)
+        wells = wells + mtw.to_wells(mt_data)
+        report['montana'] = {'file': Path(montana).name, 'generated': mt_data.get('generated'), 'built': mt_data.get('built'),
+                             'source': mt_data.get('source'), 'production': {k: v for k, v in mt_data['production'].items() if k != 'note'},
+                             'counts': mt_data.get('counts'), 'wells': len(wells) - nd_count}
     assign_slugs(wells)
     compute_nearby(wells)
     operators = group_operators(wells)
-    counties = group_counties(wells)
+    counties = group_counties(wells, prefix)
     base_url = base_url.rstrip('/')
     from urllib.parse import urlsplit
     parts = urlsplit(base_url)
@@ -694,7 +785,14 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
     ctx = {'base_url': base_url, 'base_path': parts.path.rstrip('/'), 'host': parts.netloc,
            'attribution': 'North Dakota Industrial Commission, Department of Mineral Resources, Oil and Gas Division',
            'source_date': source_date, 'built': started.date().isoformat(), 'has_data': False,
-           'site_verification': (site_verification or '').strip() or None}
+           'site_verification': None if site else ((site_verification or '').strip() or None),
+           'layout': layout, 'prefix': prefix['ND'] if site else '', 'well_dir': '' if site else '/wells',
+           'format_date': format_date, 'legal_link': tws.legal_link}
+    if mt_data:
+        ctx['montana_source'] = mt_data.get('source') or {}
+        ctx['montana_notes'] = mt_data.get('completions') or {}
+        ctx['montana_production'] = mtw.production_context(mt_data)
+    ctx['well_root'] = ctx['base_path'] + ctx['well_dir']
     units, orders, dsu_stats, dsu_data = [], [], {}, None
     if data:
         dsu_data = dsu.load_data(data)
@@ -707,7 +805,8 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
         ctx['production'] = {'firstMonth': prod_data['months'][0], 'lastMonth': prod_data['months'][-1], 'generated': prod_data.get('generated'),
                              'pdf': (prod_data.get('coverage') or {}).get('pdf')}
 
-    townships = tws.attach(wells, units)
+    townships = tws.attach(wells, units, prefix=prefix)
+    ctx['states'] = states_of(wells)
 
     out = Path(out)
     if out.exists():
@@ -720,14 +819,20 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
     shutil.copy(TEMPLATES / 'page.js', out / 'assets' / 'page.js')
     shutil.copy(TEMPLATES / 'production.js', out / 'assets' / 'production.js')
     shutil.copy(TEMPLATES / 'compare.js', out / 'assets' / 'compare.js')
-    (out / '.nojekyll').write_text('')
-    if ctx['host'] and not ctx['host'].endswith('github.io') and not ctx['base_path']:
+    if not site:
+        (out / '.nojekyll').write_text('')
+    if not site and ctx['host'] and not ctx['host'].endswith('github.io') and not ctx['base_path']:
         (out / 'CNAME').write_text(ctx['host'] + '\n')
 
     bytes_written = 0
+    mt_ctx = {**ctx, 'production': ctx.get('montana_production')}
     for w in wells:
-        page = well_page(ctx, w)
-        write(out / 'wells' / w['slug'] / 'index.html', page)
+        if w.get('state') == 'MT':
+            page = mtw.well_page(ctx, w, shell=shell, location_html=location_panel(w), nearby_html=nearby_panel(ctx, w),
+                                 production_html=prod.well_production_panel(mt_ctx, w))
+        else:
+            page = well_page(ctx, w)
+        write(out / ctx['well_dir'].strip('/') / w['slug'] / 'index.html', page)
         bytes_written += len(page.encode('utf-8'))
     for op in operators.values():
         write(out / 'operators' / op['slug'] / 'index.html', operator_page(ctx, op))
@@ -749,10 +854,12 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
         for path, page in dsu.orders_index_pages(ctx, orders, shell=shell).items():
             write(out / path.strip('/') / 'index.html', page)
             index_paths.append(path)
-    totals = {'wells': len(wells), 'operators': len(operators), 'counties': len(counties), 'units': len(units), 'orders': len(orders)}
+    totals = {'wells': len(wells), 'operators': len(operators), 'counties': len(counties), 'units': len(units), 'orders': len(orders),
+              **{state: sum(1 for w in wells if (w.get('state') or 'ND') == state) for state in ('ND', 'MT')}}
     search_html, operators_html, counties_html, not_found = index_pages(ctx, operators, counties, totals)
     write(out / 'index.html', search_html)
-    write(out / 'wells' / 'index.html', search_html)
+    if not site:
+        write(out / 'wells' / 'index.html', search_html)
     write(out / 'operators' / 'index.html', operators_html)
     write(out / 'counties' / 'index.html', counties_html)
     write(out / '404.html', not_found)
@@ -768,17 +875,18 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
     rows = []
     for w in wells:
         derived = format_api(w['api']) if w['api'] else ''
-        rows.append([w['name'], w['api'], int(w['file']), op_index[w['operator_slug']], co_index[w['county_slug']],
+        rows.append([w['name'], w['api'], None if w.get('state') == 'MT' else int(w['file']), op_index[w['operator_slug']], co_index[w['county_slug']],
                      status_index[w['status']], type_index[w['type']],
                      round(w['lat'], 5) if w['lat'] is not None else None, round(w['lon'], 5) if w['lon'] is not None else None,
                      None if w['slug'] == derived else w['slug']])
     wells_archive = next((a['file'] for a in report['archives'] if a['kind'] == 'wells'), 'OGD_Wells.zip')
     index = {'generated': started.replace(microsecond=0).isoformat().replace('+00:00', 'Z'), 'source': {'file': wells_archive, 'date': source_date},
              'fields': ['name', 'api', 'file', 'op', 'county', 'status', 'type', 'lat', 'lon', 'slug'],
-             'townships': [f'{tw["t"]}-{tw["r"]}' for tw in townships.values()],
+             'townships': [f'{tw["t"]}-{tw["r"]}' for tw in townships.values() if tw.get('state', 'ND') == 'ND'],
              'operators': [operators[s]['name'] for s in op_slugs], 'counties': [counties[s]['name'] for s in co_slugs],
+             'countyStates': [counties[s].get('state') or 'ND' for s in co_slugs],
              'statuses': statuses, 'types': types, 'statusGloss': CODES['status'], 'typeGloss': CODES['type'], 'wells': rows}
-    write(out / 'wells' / 'index.json', json.dumps(index, ensure_ascii=False, separators=(',', ':')))
+    write(out / ctx['well_dir'].strip('/') / 'index.json', json.dumps(index, ensure_ascii=False, separators=(',', ':')))
 
     # Sitemap lastmod is the date DMR last regenerated the layer, so a daily rebuild of unchanged
     # data does not tell crawlers that 44,000 pages changed; the retrieval date is the fallback.
@@ -790,7 +898,7 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
     township_urls = [(f'{base_url}/townships/', lastmod)] + [(f'{base_url}/townships/{tw["slug"]}/', lastmod) for tw in townships.values()]
     write(out / 'sitemap-townships.xml', sitemap_urlset(township_urls))
     sitemaps.append(f'{base_url}/sitemap-townships.xml')
-    well_urls = [(f'{base_url}/wells/{w["slug"]}/', lastmod) for w in sorted(wells, key=lambda w: w['slug'])]
+    well_urls = [(f'{base_url}{ctx["well_dir"]}/{w["slug"]}/', lastmod) for w in sorted(wells, key=lambda w: w['slug'])]
     for n in range(0, len(well_urls), WELLS_PER_SITEMAP):
         name = f'sitemap-wells-{n // WELLS_PER_SITEMAP + 1}.xml'
         write(out / name, sitemap_urlset(well_urls[n:n + WELLS_PER_SITEMAP]))
@@ -806,19 +914,20 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
             sitemaps.append(f'{base_url}/{name}')
     write(out / 'sitemap.xml', '<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
           + ''.join(f'<sitemap><loc>{esc(s)}</loc><lastmod>{lastmod}</lastmod></sitemap>' for s in sitemaps) + '</sitemapindex>\n')
-    write(out / 'robots.txt', f'User-agent: *\nAllow: /\n\nSitemap: {base_url}/sitemap.xml\n')
+    if not site:  # bakkensubsurface.com has its own robots.txt, which names /wells/sitemap.xml
+        write(out / 'robots.txt', f'User-agent: *\nAllow: /\n\nSitemap: {base_url}/sitemap.xml\n')
 
     files = [p for p in out.rglob('*') if p.is_file()]
     total_bytes = sum(p.stat().st_size for p in files)
     status_counts = Counter(w['status'] or '—' for w in wells).most_common()
     report.update({
-        'generated': index['generated'], 'generator': generator, 'baseUrl': base_url, 'basePath': ctx['base_path'],
+        'generated': index['generated'], 'generator': generator, 'baseUrl': base_url, 'basePath': ctx['base_path'], 'layout': layout,
         'siteVerification': ctx['site_verification'],
         'sourceDate': source_date, 'layerDate': layer_date, 'lastmod': lastmod,
         'wells': len(wells), 'operators': len(operators), 'counties': len(counties),
         'withCoordinates': sum(1 for w in wells if w['lat'] is not None), 'withoutApi': sum(1 for w in wells if not w['api']),
         'statusCounts': status_counts, 'files': len(files), 'bytes': total_bytes, 'wellPageBytes': bytes_written,
-        'indexBytes': (out / 'wells' / 'index.json').stat().st_size, 'sitemaps': len(sitemaps),
+        'indexBytes': (out / ctx['well_dir'].strip('/') / 'index.json').stat().st_size, 'sitemaps': len(sitemaps),
         'units': len(units), 'orders': len(orders), 'wellsWithUnits': sum(1 for w in wells if w.get('units')),
         'unitsWithMembers': dsu_stats.get('unitsWithMembers', 0), 'unitMembersNotInLayer': dsu_stats.get('membersNotInLayer', 0),
         'data': ({'file': Path(data).name, 'generated': dsu_data.get('generated'), 'counts': dsu_data.get('counts'), 'sources': dsu_data.get('sources')}
@@ -894,6 +1003,10 @@ def main(argv=None) -> int:
     parser.add_argument('--source', type=Path, help='folder from fetch_dmr.py, or one OGD_Wells.zip')
     parser.add_argument('--out', type=Path, help='output folder (emptied first)')
     parser.add_argument('--base-url', default='https://wells.bakkensubsurface.com', help='public origin (and path prefix) the pages will be served from')
+    parser.add_argument('--layout', choices=LAYOUTS, default='pages',
+                        help="'pages': the GitHub Pages index (wells under /wells/); 'site': bakkensubsurface.com/wells/, "
+                             'served from Workers KV by the site Worker, which adds its own header and footer')
+    parser.add_argument('--montana', type=Path, help='montana-well-index.json.gz from the pipeline: adds every Montana well (--layout site only)')
     parser.add_argument('--limit', type=int, help='only the first N records (quick local builds)')
     parser.add_argument('--summary', type=Path, help='append a Markdown build summary to this file (GitHub step summary)')
     parser.add_argument('--data', type=Path, help='well-index-data.json.gz from the pipeline: adds spacing-unit and order pages')
@@ -909,7 +1022,7 @@ def main(argv=None) -> int:
         parser.error('--source and --out are required (or use --inspect)')
     try:
         report = build(args.source, args.out, args.base_url, limit=args.limit, summary=args.summary, data=args.data, generator=args.generator,
-                       site_verification=args.site_verification, production=args.production)
+                       site_verification=args.site_verification, production=args.production, layout=args.layout, montana=args.montana)
     except (BuildError, FileNotFoundError, ValueError) as error:
         print(f'error: {error}', file=sys.stderr)
         return 1

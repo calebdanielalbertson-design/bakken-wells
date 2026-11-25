@@ -439,7 +439,8 @@ def well_production_panel(ctx, well) -> str:
     if not feed:
         return ''
     first, last = month_label(feed['firstMonth']), month_label(feed['lastMonth'])
-    source = (f'<a href="{SOURCE_URL}" rel="noopener">NDIC Monthly Production Reports</a>')
+    montana = feed.get('state') == 'MT'
+    source = feed.get('sourceHtml') or f'<a href="{SOURCE_URL}" rel="noopener">NDIC Monthly Production Reports</a>'
     entry = well.get('production')
     span = pdf_span(feed)
     pdf_text = ''
@@ -449,13 +450,17 @@ def well_production_panel(ctx, well) -> str:
     if not entry:
         unit_text = (f' Before {month_label(next_month(span[1]))} a well in a unitized pool was listed only inside its unit\'s total, '
                      'so such a well does not appear on its own in those years either.') if span else ''
+        if montana:
+            return (f'<section class="panel production"><h2>Production</h2>'
+                    f'<p class="note">This well has no production rows in the {source} up to {last}.</p></section>')
         return (f'<section class="panel production"><h2>Production</h2>'
                 f'<p class="note">This well does not appear on its own in the {source} for {first} to {last}, which list every well that '
                 f'reported in a month.{unit_text}</p></section>')
     m = metrics(entry)
     pools = m['pools']
+    noun = 'formation' if montana else 'pool'
     sub = (f'{m["n"]:,} months reported, {month_label(m["first"])} to {month_label(m["last"])}'
-           + (f', {esc(" and ".join(pools))} pool{"" if len(pools) == 1 else "s"}' if pools else '') + '.')
+           + (f', {esc(" and ".join(pools))} {noun}{"" if len(pools) == 1 else "s"}' if pools else '') + '.')
     return (f'<section class="panel production"><h2>Production</h2><p class="sub">{sub}</p>'
             f'{kpi_tiles(m)}'
             f'<div class="chartwrap">{chart_svg(entry)}</div><div class="diag"></div>'
@@ -464,8 +469,14 @@ def well_production_panel(ctx, well) -> str:
             f'<p class="actions"><button type="button" class="btn csv" data-name="{esc(well["slug"])}-production.csv">Download all months as CSV'
             f'<small>Oil, water, gas, gas sold, flared, days, and the rate and ratios</small></button></p>'
             f'<script type="application/json" id="production-data">{csv_payload(entry).replace("</", "<\\/")}</script>'
-            f'<p class="note">As first reported to NDIC in each month\'s report ({source}, {first} to {last}). Operators amend past months later and the '
-            'published reports are not updated, so a month can differ from the current record. A blank or missing month is unknown, not zero, and a '
-            'cumulative over such months is a lower bound; two pools reported in one month are summed. Rates per producing day divide the month\'s '
-            'volume by the days reported, so a month reported without producing days has no rate. Gas–oil ratio is gas produced over oil produced; '
-            f'water cut is water over oil plus water.{pdf_text}{unit_note(feed, well, entry)}</p></section>')
+            + (f'<p class="note">As the {source} holds them, retrieved {esc(feed.get("retrieved") or "")}, through {last}. The file carries amended '
+               'figures, so a month is the current record, not the first report. Formations reported in one month are summed; producing days are the most '
+               'any formation reported. A blank or missing month is unknown, not zero, and a cumulative over such months is a lower bound; a negative '
+               'volume, or more producing days than the month has, is unknown. Gas sold and flared gas are not in the file. Rates per producing day divide '
+               'the month\'s volume by the days reported. Gas–oil ratio is gas produced over oil produced; water cut is water over oil plus water. '
+               'The newest months are still being reported and are left out.</p></section>' if montana else
+               f'<p class="note">As first reported to NDIC in each month\'s report ({source}, {first} to {last}). Operators amend past months later and the '
+               'published reports are not updated, so a month can differ from the current record. A blank or missing month is unknown, not zero, and a '
+               'cumulative over such months is a lower bound; two pools reported in one month are summed. Rates per producing day divide the month\'s '
+               'volume by the days reported, so a month reported without producing days has no rate. Gas–oil ratio is gas produced over oil produced; '
+               f'water cut is water over oil plus water.{pdf_text}{unit_note(feed, well, entry)}</p></section>'))

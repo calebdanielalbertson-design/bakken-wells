@@ -214,6 +214,51 @@ neighbourhood comparison and not a type curve: geometric membership, overlapping
 additive, wells of different vintage, lateral and design, volumes as first reported. The only
 static hooks are `data-acres` on each unit in a well page's list and the module tag.
 
+## bakkensubsurface.com/wells/: both states, served by the site's Worker
+
+GitHub Pages caps a site at 1 GB, and this index was already at 914 MB with North Dakota alone. So the same pages are also built for bakkensubsurface.com/wells/ (Caleb's decision, 25 November 2026), where Montana's 42,050 wells join them.
+
+That site is a Cloudflare Worker, which allows too few static files for 110,000 pages. The pages are stored in a Workers KV namespace instead, and the Worker serves each one on request, adding the site's own header and footer (bakken-site `worker/wells.js`). The arrangement between the two repositories is written down in `Bakken HQ/wells/kv-contract.md`.
+
+```
+python scripts/wells/build_well_pages.py --layout site --base-url https://bakkensubsurface.com/wells \
+    --source work/dmr --out work/wells-kv-site --data ... --production ... --montana work/data/montana-well-index.json.gz
+python scripts/wells/publish_kv.py --site work/wells-kv-site --to-folder work/wells-kv   # local stand-in for the preview
+python scripts/wells/publish_kv.py --site work/wells-kv-site --kv                       # upload what changed
+```
+
+With `--layout site`:
+
+- Well pages sit directly under the mount: `/wells/33-053-04567/`, `/wells/25-083-22812/`.
+- County and township addresses carry the state, because both states have a Richland and a Sheridan County: `/wells/counties/nd-mckenzie/`, `/wells/townships/mt-23n-53e/`.
+- Pages leave the header and footer to the Worker (two markers in each page).
+- Visits count under the site's `wells` section.
+
+**Publishing.** `publish_kv.py` works like this:
+
+- It gzips every file and keys it by the address it is served at.
+- It sends only the keys whose content changed since the last publish, and deletes keys the build no longer has.
+- It keeps its manifest in KV itself and writes it last, so a run that fails part-way sends the rest next time.
+
+The workflow publishes after the GitHub Pages build when the repository variable `WELLS_KV` is `on`. It needs:
+
+- the variables `CLOUDFLARE_ACCOUNT_ID` and `WELLS_KV_NAMESPACE_ID`;
+- the secret `CLOUDFLARE_KV_TOKEN`, an API token with Workers KV Storage write access on that account.
+
+**Montana** (`scripts/wells/montana.py`) comes from one file, `montana-well-index.json.gz`. The pipeline builds it with `explorer/prepare_montana_well_index.py` from the free downloads of the Montana Board of Oil and Gas Conservation. That script holds the rules. The file is uploaded to the `well-index-data` release, like the North Dakota files.
+
+Every well in the Board's well list gets a page showing:
+
+- the Board's facts and its own status words;
+- production as the Board's file holds it, which includes amended figures (gas sold and flared gas are not in that file);
+- where the scanned well file was read by machine, the completion report block from the 3D viewer's well card;
+- the frac water the operator disclosed to FracFocus;
+- a link to the Board's scanned file.
+
+Montana has no file number, so the API number is the key. Township and range keep their N/S and E/W directions.
+
+A scheduled run rebuilds only when North Dakota's inputs change. After uploading a new Montana file, start the workflow by hand.
+
 ## Running locally
 
 ```
