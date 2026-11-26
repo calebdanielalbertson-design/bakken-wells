@@ -143,7 +143,9 @@ const el = (tag, props = {}, children = []) => {
   return node;
 };
 
-export function mountSearch({input, results, status, base = '', index, limit = 50}) {
+// wellRoot is where well pages live: `${base}/wells` on the GitHub Pages index, base itself on
+// bakkensubsurface.com/wells/. townshipPrefix is the state prefix of township slugs there ("nd-").
+export function mountSearch({input, results, status, base = '', wellRoot = `${base}/wells`, townshipPrefix = '', index, limit = 50}) {
   const engine = createSearch(index);
   const statusOf = index.statusGloss || {}, typeOf = index.typeGloss || {};
   const fmt = new Intl.NumberFormat('en-US');
@@ -163,16 +165,18 @@ export function mountSearch({input, results, status, base = '', index, limit = 5
       ? `${fmt.format(total)} match${total === 1 ? '' : 'es'}${total > rows.length ? ` · showing the top ${rows.length}` : ''}`
       : township ? 'Township page found.' : 'No matching wells. Try fewer words, part of the name, or the API or file number.';
     if (township) {
-      const href = `${base}/townships/${township.slug}/${township.section ? `#section-${township.section}` : ''}`;
+      const href = `${base}/townships/${townshipPrefix}${township.slug}/${township.section ? `#section-${township.section}` : ''}`;
       results.append(el('li', {class: 'township'}, [
         el('a', {class: 'r-title', href, text: `Township ${township.township} North, Range ${township.range} West${township.section ? `, section ${township.section}` : ''}`}),
         el('div', {class: 'r-meta', text: 'Township page: section grid, every well in its section, spacing units and orders'}),
       ]));
     }
     for (const {well} of rows) {
-      const href = `${base}/wells/${well.slug}/`;
-      const bits = [`API ${formatApi(well.api) || '—'}`, `File ${well.file || '—'}`, well.operator,
-        well.countyName ? `${well.countyName} County` : '',
+      const href = `${wellRoot}/${well.slug}/`;
+      // Montana wells have no file number (the index carries null); a build with both states names the county's state
+      const state = (index.countyStates || [])[well.county];
+      const bits = [`API ${formatApi(well.api) || '—'}`, well.file ? `File ${well.file}` : (state === 'MT' ? 'Montana' : 'File —'), well.operator,
+        well.countyName ? `${well.countyName} County${state && (index.countyStates || []).includes('MT') ? `, ${state}` : ''}` : '',
         statusOf[well.status] ? `${statusOf[well.status]} (${well.status})` : well.status,
         typeOf[well.type] || well.type].filter(Boolean);
       const actions = [el('a', {href, text: 'Details'})];
