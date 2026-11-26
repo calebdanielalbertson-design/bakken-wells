@@ -38,6 +38,16 @@ class CompareTests(unittest.TestCase):
         self.assertFalse(changed.compare(without_generator, PROVENANCE, '2026-11-07T04:44:11Z', 'abc')[0])   # older live build.json
         self.assertTrue(changed.compare(without_generator, PROVENANCE, '2026-11-07T04:44:11Z', None)[0])    # generator not supplied: not compared
 
+    def test_montana_file_counts_only_when_given(self):
+        with_montana = dict(LIVE, montana={'generated': '2026-11-25T18:47:33Z'})
+        args = (PROVENANCE, '2026-11-07T04:44:11Z', LIVE['generator'], None)
+        self.assertTrue(changed.compare(with_montana, *args, '2026-11-25T18:47:33Z')[0])
+        unchanged, lines = changed.compare(with_montana, *args, '2026-12-01T00:00:00Z')        # a new Montana file was uploaded
+        self.assertFalse(unchanged)
+        self.assertIn('Montana wells: changed', lines[-2])
+        self.assertFalse(changed.compare(LIVE, *args, '2026-11-25T18:47:33Z')[0])               # live build has no Montana yet
+        self.assertTrue(changed.compare(with_montana, *args)[0])                                # GitHub Pages runs pass no Montana file
+
     def test_cli_writes_github_output_and_never_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -1026,7 +1026,9 @@ def main(argv=None) -> int:
     except (BuildError, FileNotFoundError, ValueError) as error:
         print(f'error: {error}', file=sys.stderr)
         return 1
-    print(f'{report["wells"]:,} wells ({report["wellsWithProduction"]:,} with production), {report["units"]:,} units, {report["orders"]:,} orders -> {report["files"]:,} files, {report["bytes"] / 1e6:.1f} MB at {args.out} (base {report["baseUrl"]}) in {report["seconds"]} s')
+    mt = report.get('montana')
+    mt_text = (f'; Montana {mt["wells"]:,} wells, {(mt.get("counts") or {}).get("wellsWithProduction", 0):,} with production' if mt else '')
+    print(f'{report["wells"]:,} wells ({report["wellsWithProduction"]:,} North Dakota wells with production{mt_text}), {report["units"]:,} units, {report["orders"]:,} orders -> {report["files"]:,} files, {report["bytes"] / 1e6:.1f} MB at {args.out} (base {report["baseUrl"]}) in {report["seconds"]} s')
     for warning in report['warnings']:
         print(f'warning: {warning}')
     return 0

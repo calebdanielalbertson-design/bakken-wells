@@ -350,7 +350,8 @@ def chart_svg(entry) -> str:
 
 # ---------------------------------------------------------------- the panel
 
-def kpi_tiles(m) -> str:
+def kpi_tiles(m, montana=False) -> str:
+    """montana: the Board's file has no gas sold or flared, so the last tile shows the gas produced instead of an empty share."""
     def tile(label, value, unit, detail):
         return f'<div class="kpi"><span class="l">{esc(label)}</span><b>{esc(value)}<small>{esc(unit)}</small></b><span class="d">{detail}</span></div>'
 
@@ -368,8 +369,11 @@ def kpi_tiles(m) -> str:
                       f'first year <strong>{round(m["gorYear1"]):,}</strong> scf/bbl' if m['gorYear1'] is not None else 'gas over oil, produced'))
     tiles.append(tile('Water cut, last 12 months', f'{m["wcut12"]:.0f}' if m['wcut12'] is not None else '—', '%',
                       (f'first year <strong>{m["wcutYear1"]:.0f}%</strong> · ' if m['wcutYear1'] is not None else '') + f'{compact(m["cumWater"])} bbl water in all'))
-    tiles.append(tile('Gas sold, last 12 months', f'{m["sold12"]:.0f}' if m['sold12'] is not None else '—', '%',
-                      'of gas produced · ' + (f'<strong>{compact(m["flared12"])}</strong> mcf reported flared' if m['flared12'] is not None else f'{compact(m["cumGas"])} mcf in all')))
+    if montana:
+        tiles.append(tile('Cumulative gas', compact(m['cumGas']), 'mcf', 'gas produced · sold and flared gas are not in the Board\'s file'))
+    else:
+        tiles.append(tile('Gas sold, last 12 months', f'{m["sold12"]:.0f}' if m['sold12'] is not None else '—', '%',
+                          'of gas produced · ' + (f'<strong>{compact(m["flared12"])}</strong> mcf reported flared' if m['flared12'] is not None else f'{compact(m["cumGas"])} mcf in all')))
     return '<div class="kpis">' + ''.join(tiles) + '</div>'
 
 
@@ -462,12 +466,12 @@ def well_production_panel(ctx, well) -> str:
     sub = (f'{m["n"]:,} months reported, {month_label(m["first"])} to {month_label(m["last"])}'
            + (f', {esc(" and ".join(pools))} {noun}{"" if len(pools) == 1 else "s"}' if pools else '') + '.')
     return (f'<section class="panel production"><h2>Production</h2><p class="sub">{sub}</p>'
-            f'{kpi_tiles(m)}'
+            f'{kpi_tiles(m, montana)}'
             f'<div class="chartwrap">{chart_svg(entry)}</div><div class="diag"></div>'
             f'{fact_lists(m)}'
             f'<details><summary>Last {TABLE_MONTHS} months as a table</summary><div class="scroll">{table_html(entry)}</div></details>'
             f'<p class="actions"><button type="button" class="btn csv" data-name="{esc(well["slug"])}-production.csv">Download all months as CSV'
-            f'<small>Oil, water, gas, gas sold, flared, days, and the rate and ratios</small></button></p>'
+            f'<small>{"Oil, water, gas, days" if montana else "Oil, water, gas, gas sold, flared, days"}, and the rate and ratios</small></button></p>'
             f'<script type="application/json" id="production-data">{csv_payload(entry).replace("</", "<\\/")}</script>'
             + (f'<p class="note">As the {source} holds them, retrieved {esc(feed.get("retrieved") or "")}, through {last}. The file carries amended '
                'figures, so a month is the current record, not the first report. Formations reported in one month are summed; producing days are the most '
