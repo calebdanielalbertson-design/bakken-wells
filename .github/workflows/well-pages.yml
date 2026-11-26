@@ -2,6 +2,9 @@ name: Well pages
 
 # Builds one static page per North Dakota well from the public NDIC/DMR GIS download and
 # publishes the result to this repository's GitHub Pages site.
+# Since 2026-11-26 (repository variable WELLS_KV = "on") Find a well lives at bakkensubsurface.com/wells/,
+# with Montana: the pages go to the site's Workers KV namespace, and GitHub Pages gets small pages
+# that forward every old address to the same page there (scripts/wells/redirects.py).
 #   - daily on a schedule (DMR regenerates the wells layer every morning, about 09:15 UTC;
 #     a scheduled run that finds the same archives, unit data and generator as the live
 #     site stops after the download instead of redeploying 70,000 unchanged pages).
@@ -147,16 +150,25 @@ jobs:
 
       # On the daily schedule only: stop here when DMR's archives, the unit data and the generator
       # are the ones the live site was built from. Pushes and manual runs always build and deploy.
+      # With WELLS_KV on, the live site is bakkensubsurface.com/wells/ (GitHub Pages only forwards),
+      # and a newly uploaded Montana file counts as a change too.
       - name: Compare with the live site
         id: changed
         if: github.event_name == 'schedule' && steps.hours.outputs.defer != 'true'
         run: |
+          live="${{ steps.base.outputs.url }}/build.json"
+          montana=""
+          if [ "${{ vars.WELLS_KV }}" = "on" ]; then
+            live="https://bakkensubsurface.com/wells/build.json"
+            test -f work/data/montana-well-index.json.gz && montana="--montana work/data/montana-well-index.json.gz"
+          fi
           python scripts/wells/changed.py \
-            --live "${{ steps.base.outputs.url }}/build.json" \
+            --live "$live" \
             --provenance work/dmr/download-provenance.json \
             --generator "$GITHUB_SHA" \
             $(test -f work/data/well-index-data.json.gz && echo "--data work/data/well-index-data.json.gz") \
             $(test -f work/data/well-production.json.gz && echo "--production work/data/well-production.json.gz") \
+            $montana \
             --github-output "$GITHUB_OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Build the pages
@@ -173,30 +185,6 @@ jobs:
           cat work/build-summary.md >> "$GITHUB_STEP_SUMMARY"
           cat work/build-summary.md
 
-      - name: Keep the build report
-        if: steps.hours.outputs.defer != 'true' && steps.changed.outputs.unchanged != 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: well-pages-report
-          path: |
-            work/wells-site/build.json
-            work/dmr/download-provenance.json
-          retention-days: 90
-
-      # Same tarball actions/upload-pages-artifact would build, minus its per-file log line
-      # (tens of thousands of them), so the column report above stays readable in the log.
-      - name: Package for GitHub Pages
-        if: steps.hours.outputs.defer != 'true' && steps.changed.outputs.unchanged != 'true'
-        run: tar --dereference --hard-dereference --directory work/wells-site --exclude=.git --exclude=.github -cf "$RUNNER_TEMP/artifact.tar" .
-
-      - uses: actions/upload-artifact@v4
-        if: steps.hours.outputs.defer != 'true' && steps.changed.outputs.unchanged != 'true'
-        with:
-          name: github-pages
-          path: ${{ runner.temp }}/artifact.tar
-          retention-days: 1
-          if-no-files-found: error
-
       # bakkensubsurface.com/wells/, switched on by the repository variable WELLS_KV = "on": the same
       # pages built for the site's Worker (--layout site) and sent to its Workers KV namespace. Only the
       # keys whose content changed are sent; publish_kv.py keeps a manifest of the last publish in KV.
@@ -212,6 +200,53 @@ jobs:
             --base-url https://bakkensubsurface.com/wells \
             --layout site \
             --generator "$GITHUB_SHA" ${{ steps.data.outputs.args }} ${{ steps.data.outputs.montana }}
+
+      # Every page of the GitHub Pages build becomes a small page that forwards to the same page at
+      # bakkensubsurface.com/wells/ (checked against the build above; a page it lacks forwards to the
+      # nearest page above it). The forwarding pages, not the full copy, are what GitHub Pages serves.
+      - name: Forward the GitHub Pages copy to bakkensubsurface.com/wells/
+        if: steps.site.outcome == 'success'
+        env:
+          BASE: ${{ steps.base.outputs.url }}
+          GOOGLE_SITE_VERIFICATION: ${{ vars.GOOGLE_SITE_VERIFICATION }}
+        run: |
+          python scripts/wells/redirects.py \
+            --old work/wells-site \
+            --new work/wells-kv-site \
+            --to https://bakkensubsurface.com/wells \
+            --old-base-path "$(python -c 'import sys, urllib.parse; print(urllib.parse.urlsplit(sys.argv[1]).path)' "$BASE")" \
+            --out work/wells-redirects \
+            --site-verification "$GOOGLE_SITE_VERIFICATION" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the build report
+        if: steps.hours.outputs.defer != 'true' && steps.changed.outputs.unchanged != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: well-pages-report
+          path: |
+            work/wells-site/build.json
+            work/wells-kv-site/build.json
+            work/dmr/download-provenance.json
+          retention-days: 90
+
+      # Same tarball actions/upload-pages-artifact would build, minus its per-file log line
+      # (tens of thousands of them), so the column report above stays readable in the log.
+      # The forwarding pages when they were built, otherwise the full GitHub Pages copy.
+      - name: Package for GitHub Pages
+        if: steps.hours.outputs.defer != 'true' && steps.changed.outputs.unchanged != 'true'
+        run: |
+          dir=work/wells-site
+          test -f work/wells-redirects/index.html && dir=work/wells-redirects
+          echo "Packaging $dir for GitHub Pages"
+          tar --dereference --hard-dereference --directory "$dir" --exclude=.git --exclude=.github -cf "$RUNNER_TEMP/artifact.tar" .
+
+      - uses: actions/upload-artifact@v4
+        if: steps.hours.outputs.defer != 'true' && steps.changed.outputs.unchanged != 'true'
+        with:
+          name: github-pages
+          path: ${{ runner.temp }}/artifact.tar
+          retention-days: 1
+          if-no-files-found: error
 
       - name: Publish to Workers KV
         if: steps.site.outcome == 'success' && github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.deploy)

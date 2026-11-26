@@ -76,6 +76,12 @@ class MontanaPagesTest(unittest.TestCase):
         self.assertIn('Montana Board of Oil and Gas Conservation production file', html)
         self.assertIn('The file carries amended figures', html)
         self.assertNotIn('NDIC Monthly Production Reports', html)
+        tile = '<span class="l">Cumulative gas</span>'
+        self.assertIn(tile, html)                                   # the Board's file has no gas sold: no empty share tile
+        self.assertNotIn('Gas sold, last 12 months', html)
+        self.assertIn('<small>Oil, water, gas, days, and the rate and ratios</small>', html)
+        nd = self.page(next(p.name for p in self.out.iterdir() if p.name.startswith('33-') and 'Gas sold, last 12 months' in self.page(p.name)))
+        self.assertNotIn(tile, nd)
         self.assertIn('<h2>Completion report</h2>', html)
         self.assertIn('9⅝ in, 36.0 lb/ft, K-55', html)
         self.assertIn('10,671 – 14,308 ft', html)

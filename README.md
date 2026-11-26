@@ -257,7 +257,16 @@ Every well in the Board's well list gets a page showing:
 
 Montana has no file number, so the API number is the key. Township and range keep their N/S and E/W directions.
 
-A scheduled run rebuilds only when North Dakota's inputs change. After uploading a new Montana file, start the workflow by hand.
+A scheduled run also rebuilds when a newer Montana file is in the release: it compares the file's `generated` time with the live build's (`changed.py --montana`). To publish one at once, start the workflow by hand.
+
+**The GitHub Pages copy forwards.** Find a well went live at bakkensubsurface.com/wells/ on 26 November 2026. Since then GitHub Pages serves a small page in place of every old page, forwarding to the same page at the new address (`scripts/wells/redirects.py`):
+
+- each one has a meta refresh of 0 seconds, a canonical link, a script that keeps the query and #fragment, and a plain link;
+- `/wells/<api>/` loses its `wells/` folder, and county and township addresses gain `nd-`;
+- every target is checked against the site build, and a page the site lacks forwards to the nearest page above it;
+- `404.html` applies the same rule in the browser for addresses that never had a page.
+
+The daily check reads the live `build.json` from bakkensubsurface.com/wells/.
 
 ## Running locally
 
