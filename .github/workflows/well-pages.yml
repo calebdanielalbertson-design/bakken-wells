@@ -190,6 +190,24 @@ jobs:
       # keys whose content changed are sent; publish_kv.py keeps a manifest of the last publish in KV.
       # Needs the variables CLOUDFLARE_ACCOUNT_ID and WELLS_KV_NAMESPACE_ID and the secret
       # CLOUDFLARE_KV_TOKEN (an API token with Workers KV Storage write on that account).
+      # The change feed (scripts/wells/changes.py) compares this build with the index that is live and adds the day
+      # to the live feed. A fetch that fails only means no comparison this time.
+      - name: Fetch the live index and change feed
+        id: live
+        if: vars.WELLS_KV == 'on' && steps.hours.outputs.defer != 'true' && steps.changed.outputs.unchanged != 'true'
+        run: |
+          mkdir -p work/live
+          args=""
+          if curl -sfL --compressed --retry 3 https://bakkensubsurface.com/wells/index.json -o work/live/index.json; then
+            args="$args --previous-index work/live/index.json"
+          else
+            echo "::warning::Could not fetch the live index; no changes are recorded this run"
+          fi
+          if curl -sfL --compressed --retry 3 https://bakkensubsurface.com/wells/changes/index.json -o work/live/changes.json; then
+            args="$args --previous-changes work/live/changes.json"
+          fi
+          echo "args=${args# }" >> "$GITHUB_OUTPUT"
+
       - name: Build the pages for bakkensubsurface.com/wells/
         id: site
         if: vars.WELLS_KV == 'on' && steps.hours.outputs.defer != 'true' && steps.changed.outputs.unchanged != 'true'
@@ -199,7 +217,7 @@ jobs:
             --out work/wells-kv-site \
             --base-url https://bakkensubsurface.com/wells \
             --layout site \
-            --generator "$GITHUB_SHA" ${{ steps.data.outputs.args }} ${{ steps.data.outputs.montana }}
+            --generator "$GITHUB_SHA" ${{ steps.data.outputs.args }} ${{ steps.data.outputs.montana }} ${{ steps.live.outputs.args }}
 
       # Every page of the GitHub Pages build becomes a small page that forwards to the same page at
       # bakkensubsurface.com/wells/ (checked against the build above; a page it lacks forwards to the
@@ -249,12 +267,29 @@ jobs:
           if-no-files-found: error
 
       - name: Publish to Workers KV
+        id: publish
         if: steps.site.outcome == 'success' && github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.deploy)
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           WELLS_KV_NAMESPACE_ID: ${{ vars.WELLS_KV_NAMESPACE_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_KV_TOKEN }}
-        run: python scripts/wells/publish_kv.py --site work/wells-kv-site --kv --summary "$GITHUB_STEP_SUMMARY"
+        run: python scripts/wells/publish_kv.py --site work/wells-kv-site --kv --summary "$GITHUB_STEP_SUMMARY" --github-output "$GITHUB_OUTPUT"
+
+      # Workers Paid includes 1 million KV writes a month. A daily run writes the pages that changed plus a few
+      # files (stamp, index, change feed), normally a few hundred keys. A scheduled run that writes far more means
+      # something made every page differ again (as the daily dates did before 2026-11-26); this fails the run so
+      # GitHub emails the owner. The pages are published either way. Pushes and manual runs may write more.
+      - name: Check the run's KV writes
+        if: steps.publish.outcome == 'success' && github.event_name == 'schedule'
+        env:
+          WRITTEN: ${{ steps.publish.outputs.written }}
+          LIMIT: ${{ vars.WELLS_KV_WRITE_ALERT || '25000' }}
+        run: |
+          echo "KV writes this run: ${WRITTEN:-0} (alert above $LIMIT)" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "${WRITTEN:-0}" -gt "$LIMIT" ]; then
+            echo "::error title=Workers KV writes::A scheduled run wrote ${WRITTEN} keys (alert above ${LIMIT}). At this rate the month passes the 1 million writes Workers Paid includes; look for something that changes every page."
+            exit 1
+          fi
 
   deploy:
     name: Deploy to GitHub Pages

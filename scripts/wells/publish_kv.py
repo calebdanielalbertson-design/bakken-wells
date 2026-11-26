@@ -230,6 +230,7 @@ def main(argv=None) -> int:
     target.add_argument('--kv', action='store_true', help='upload to Workers KV (see the environment variables above)')
     parser.add_argument('--dry-run', action='store_true', help='with --kv: compare with the last publish and stop')
     parser.add_argument('--summary', type=Path, help='append a Markdown line to this file (GitHub step summary)')
+    parser.add_argument('--github-output', type=Path, help='append written=<keys written> and deleted=<keys deleted> to this file')
     args = parser.parse_args(argv)
     try:
         entries, mount = collect(args.site, args.mount)
@@ -243,6 +244,9 @@ def main(argv=None) -> int:
             raise PublishError('missing environment: ' + ', '.join(missing))
         kv = KV(env['CLOUDFLARE_ACCOUNT_ID'], env['WELLS_KV_NAMESPACE_ID'], env['CLOUDFLARE_API_TOKEN'])
         result = publish(entries, kv, dry_run=args.dry_run)
+        if args.github_output:
+            with args.github_output.open('a', encoding='utf-8') as stream:
+                stream.write(f'written={result["write"]}\ndeleted={result["delete"]}\n')
         if args.summary:
             with args.summary.open('a', encoding='utf-8') as stream:
                 stream.write(f'\n- **Workers KV**: {result["keys"]:,} keys under `{mount}/`; {result["write"]:,} written, {result["delete"]:,} deleted'
