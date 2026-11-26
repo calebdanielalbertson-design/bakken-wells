@@ -40,6 +40,7 @@ from wells import montana as mtw  # noqa: E402
 from wells import production as prod  # noqa: E402
 from wells import townships as tws  # noqa: E402
 from wells import units as dsu  # noqa: E402
+from wells import well_json as wjson  # noqa: E402
 from wells.shapefile import load_layer  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -49,6 +50,9 @@ MAIN_SITE = 'https://bakkensubsurface.com'
 VIEWER_URL = MAIN_SITE + '/viewer/?dataset=full&well={file}'
 VIEWER_3D_URL = MAIN_SITE + '/3d/'
 DMR_PAGE = 'https://gis.dmr.nd.gov/gisdownload.asp'
+# Site layout only: the bakkensubsurface.com Worker replaces these with the dates in /wells/stamp.json (bakken-site worker/wells.js).
+DATE_RETRIEVED = '<!--wells:retrieved-->'
+DATE_BUILT = '<!--wells:built-->'
 WELLS_PER_SITEMAP = 10000
 LAYOUTS = ('pages', 'site')
 NEARBY_MILES = 3.0
@@ -465,9 +469,11 @@ def shell(ctx, *, title, description, path, body, crumbs=None, jsonld=None, robo
     if ctx.get('layout') == 'site':
         # Served from Workers KV by the bakkensubsurface.com Worker, which swaps the two markers for the
         # site's own header and footer (bakken-site worker/wells.js; contract in Bakken HQ/wells/kv-contract.md).
-        sources = sources or (f'<p>Well records: {esc(ctx["attribution"])}, public GIS download retrieved {esc(ctx["source_date"])}. '
+        # The two daily dates are markers the Worker fills in from /wells/stamp.json: written into 118,000 pages they
+        # would change every page every day, and each daily publish would rewrite them all in KV.
+        sources = sources or (f'<p>Well records: {esc(ctx["attribution"])}, public GIS download retrieved {DATE_RETRIEVED}. '
                    'NDIC codes are shown with our plain-language reading. Locations are published well heads; laterals can run miles from them. Independent project, not affiliated with NDIC.</p>'
-                   f'<p><a href="{DMR_PAGE}" rel="noopener">Source data</a> · <a href="/methodology/">Methodology</a> · <a href="https://github.com/calebdanielalbertson-design/bakken-wells" rel="noopener">Code</a> · built {esc(ctx["built"])}</p>')
+                   f'<p><a href="{DMR_PAGE}" rel="noopener">Source data</a> · <a href="/methodology/">Methodology</a> · <a href="https://github.com/calebdanielalbertson-design/bakken-wells" rel="noopener">Code</a> · built {DATE_BUILT}</p>')
         return (
             '<!doctype html><html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
@@ -833,6 +839,8 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
         else:
             page = well_page(ctx, w)
         write(out / ctx['well_dir'].strip('/') / w['slug'] / 'index.html', page)
+        if site:
+            write(out / w['slug'] / 'well.json', wjson.well_json(w, ctx, status_text=status_text, type_text=type_text))
         bytes_written += len(page.encode('utf-8'))
     for op in operators.values():
         write(out / 'operators' / op['slug'] / 'index.html', operator_page(ctx, op))
@@ -863,6 +871,8 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
     write(out / 'operators' / 'index.html', operators_html)
     write(out / 'counties' / 'index.html', counties_html)
     write(out / '404.html', not_found)
+    if site:
+        write(out / 'stamp.json', wjson.stamp(ctx, report, layer_date))
 
     statuses = sorted({w['status'] for w in wells})
     types = sorted({w['type'] for w in wells})

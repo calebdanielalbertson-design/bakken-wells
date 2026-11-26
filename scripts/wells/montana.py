@@ -250,4 +250,4 @@ def montana_sources(ctx) -> str:
             'Status and well type are the Board\'s own words. Locations are published well heads; laterals can run miles from them. '
             'Independent project, not affiliated with the Board.</p>'
             f'<p><a href="{BOARD_URL}" rel="noopener">Source data</a> · <a href="/methodology/">Methodology</a> · '
-            f'<a href="https://github.com/calebdanielalbertson-design/bakken-wells" rel="noopener">Code</a> · built {esc(ctx["built"])}</p>')
+            f'<a href="https://github.com/calebdanielalbertson-design/bakken-wells" rel="noopener">Code</a> · built <!--wells:built--></p>')
