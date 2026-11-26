@@ -268,6 +268,21 @@ A scheduled run also rebuilds when a newer Montana file is in the release: it co
 
 The daily check reads the live `build.json` from bakkensubsurface.com/wells/.
 
+**What changed** (2026-11-26, `scripts/wells/changes.py`). Before the site build, the workflow fetches the live `/wells/index.json` and `/wells/changes/index.json`. The build records each difference from the live index as an event:
+
+- a new record (in North Dakota mostly new permits);
+- a status, operator or name change;
+- a record the state no longer lists;
+- a note when production reaches a newer month.
+
+It adds the day to the live feed and keeps 45 days, in three files: `/wells/changes/index.json`, the Atom feed `/wells/changes/feed.xml` and the page `/wells/changes/`. The site's API (`/api/v1/changes`) and MCP server read the JSON. A fetch that fails means only that this run records no changes.
+
+**No daily dates in the pages, and a write alarm.**
+
+- Pages carry `<!--wells:built-->` and `<!--wells:retrieved-->`. The site's Worker fills them from `/wells/stamp.json`, so a daily run rewrites only the pages whose content changed.
+- `publish_kv.py --github-output` records the number of keys written.
+- On scheduled runs, the step "Check the run's KV writes" fails the run, so GitHub emails the owner, when that number passes `vars.WELLS_KV_WRITE_ALERT` (default 25,000). Workers Paid includes 1 million writes a month.
+
 ## Running locally
 
 ```

@@ -41,6 +41,7 @@ from wells import production as prod  # noqa: E402
 from wells import townships as tws  # noqa: E402
 from wells import units as dsu  # noqa: E402
 from wells import well_json as wjson  # noqa: E402
+from wells import changes as chg  # noqa: E402
 from wells.shapefile import load_layer  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -726,6 +727,9 @@ def index_pages(ctx, operators, counties, totals):
            f'<p>{totals["units"]:,} <a href="{base}/units/">drilling spacing units</a> have a page with the unit footprint, the surveyed wells inside it and the NDIC hearing orders that created or changed it; '
            f'{totals["orders"]:,} <a href="{base}/orders/">orders</a> have a page listing the units they touched. Order facts are machine-extracted from the signed orders and not human-reviewed.</p></section>'
            if ctx.get('has_data') else '')
+        + (f'<section class="panel" style="margin-top:16px"><h2>What changed</h2><p>New wells and permits, status and operator changes, '
+           f'day by day: <a href="{base}/changes/">see what changed</a>, or follow the <a href="{base}/changes/feed.xml">Atom feed</a> in a reader.</p></section>'
+           if ctx.get('layout') == 'site' else '')
         + '<section class="panel" style="margin-top:16px"><h2>About this index</h2>'
         '<p>The pages are rebuilt automatically from the North Dakota Department of Mineral Resources public GIS download of well records, so they track NDIC\'s own updates, including newly permitted locations before they are drilled. '
         f'Each page carries the published surface location with one-tap directions, and links into the <a href="{MAIN_SITE}/viewer/?dataset=full">regional 3D viewer</a> for wells with surveyed paths.</p>'
@@ -756,7 +760,8 @@ def sitemap_urlset(entries):
 
 
 def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path | None = None, data: Path | None = None, generator: str | None = None,
-          site_verification: str | None = None, production: Path | None = None, layout: str = 'pages', montana: Path | None = None):
+          site_verification: str | None = None, production: Path | None = None, layout: str = 'pages', montana: Path | None = None,
+          previous_index: Path | None = None, previous_changes: Path | None = None):
     started = datetime.now(timezone.utc)
     wells, report = load_sources(source, limit=limit)
     if not wells:
@@ -897,6 +902,18 @@ def build(source: Path, out: Path, base_url: str, *, limit=None, summary: Path |
              'countyStates': [counties[s].get('state') or 'ND' for s in co_slugs],
              'statuses': statuses, 'types': types, 'statusGloss': CODES['status'], 'typeGloss': CODES['type'], 'wells': rows}
     write(out / ctx['well_dir'].strip('/') / 'index.json', json.dumps(index, ensure_ascii=False, separators=(',', ':')))
+    if site:
+        # What changed since the index that is live (scripts/wells/changes.py): the feed, its Atom copy and its page.
+        previous = chg.read_json(previous_index)
+        events = chg.diff(previous, index)
+        through = {'ND': (ctx.get('production') or {}).get('lastMonth'), 'MT': (ctx.get('montana_production') or {}).get('lastMonth')}
+        feed = chg.update(chg.read_json(previous_changes), events, day=ctx['built'], production=through, had_previous=previous is not None)
+        write(out / 'changes' / 'index.json', json.dumps(feed, ensure_ascii=False, separators=(',', ':')))
+        write(out / 'changes' / 'feed.xml', chg.atom(feed, well_root_url=base_url + ctx['well_dir']))
+        write(out / 'changes' / 'index.html', shell(ctx, title='What changed in the well records · Bakken Subsurface',
+                                                  description='New wells and permits, status and operator changes in North Dakota and Montana, day by day.',
+                                                  path='/changes/', body=chg.page_body(feed, well_root=ctx['well_root'])))
+        report['changes'] = {'today': feed['days'][0]['counts'] if feed['days'] else {}, 'days': len(feed['days']), 'comparedWithLive': previous is not None}
 
     # Sitemap lastmod is the date DMR last regenerated the layer, so a daily rebuild of unchanged
     # data does not tell crawlers that 44,000 pages changed; the retrieval date is the fallback.
@@ -1017,6 +1034,8 @@ def main(argv=None) -> int:
                         help="'pages': the GitHub Pages index (wells under /wells/); 'site': bakkensubsurface.com/wells/, "
                              'served from Workers KV by the site Worker, which adds its own header and footer')
     parser.add_argument('--montana', type=Path, help='montana-well-index.json.gz from the pipeline: adds every Montana well (--layout site only)')
+    parser.add_argument('--previous-index', type=Path, help='the live /wells/index.json, to record what changed (--layout site)')
+    parser.add_argument('--previous-changes', type=Path, help='the live /wells/changes/index.json, the feed to add today to (--layout site)')
     parser.add_argument('--limit', type=int, help='only the first N records (quick local builds)')
     parser.add_argument('--summary', type=Path, help='append a Markdown build summary to this file (GitHub step summary)')
     parser.add_argument('--data', type=Path, help='well-index-data.json.gz from the pipeline: adds spacing-unit and order pages')
@@ -1032,7 +1051,8 @@ def main(argv=None) -> int:
         parser.error('--source and --out are required (or use --inspect)')
     try:
         report = build(args.source, args.out, args.base_url, limit=args.limit, summary=args.summary, data=args.data, generator=args.generator,
-                       site_verification=args.site_verification, production=args.production, layout=args.layout, montana=args.montana)
+                       site_verification=args.site_verification, production=args.production, layout=args.layout, montana=args.montana,
+                       previous_index=args.previous_index, previous_changes=args.previous_changes)
     except (BuildError, FileNotFoundError, ValueError) as error:
         print(f'error: {error}', file=sys.stderr)
         return 1
